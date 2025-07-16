@@ -1,14 +1,12 @@
 # backend/routes/auth.py
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app 
 from models.user import User
 from utils.auth import AuthManager, token_required
 import re
+from config import get_database_connection
 
 auth_bp = Blueprint('auth', __name__)
 
-def get_db_connection():
-    from app import db_connection
-    return db_connection
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
@@ -35,7 +33,7 @@ def register():
         if len(data['password']) < 6:
             return jsonify({'error': 'Password must be at least 6 characters long'}), 400
         
-        db_connection = get_db_connection()
+        db_connection = get_database_connection()
         user_model = User(db_connection)
         
         # Check if user already exists
@@ -64,7 +62,7 @@ def login():
         if 'username' not in data or 'password' not in data:
             return jsonify({'error': 'Username and password are required'}), 400
         
-        db_connection = get_db_connection()
+        db_connection = get_database_connection()
         user_model = User(db_connection)
         
         # Verify user credentials
@@ -73,7 +71,7 @@ def login():
             return jsonify({'error': 'Invalid username or password'}), 401
         
         # Generate token
-        auth_manager = AuthManager('your-secret-key')  # In production, use config
+        auth_manager = AuthManager(current_app.config['SECRET_KEY']) # In production, use config
         token = auth_manager.generate_token(user)
         
         return jsonify({
@@ -96,7 +94,7 @@ def login():
 def get_profile(current_user):
     """Get user profile"""
     try:
-        db_connection = get_db_connection()
+        db_connection = get_database_connection()
         user_model = User(db_connection)
         
         user = user_model.get_user_by_id(current_user['user_id'])
@@ -120,7 +118,7 @@ def update_profile(current_user):
         data.pop('role', None)
         data.pop('username', None)
         
-        db_connection = get_db_connection()
+        db_connection = get_database_connection()
         user_model = User(db_connection)
         
         success = user_model.update_user(current_user['user_id'], data)
@@ -145,7 +143,7 @@ def change_password(current_user):
         if len(data['new_password']) < 6:
             return jsonify({'error': 'New password must be at least 6 characters long'}), 400
         
-        db_connection = get_db_connection()
+        db_connection = get_database_connection()
         user_model = User(db_connection)
         
         # Verify current password
@@ -154,7 +152,7 @@ def change_password(current_user):
             return jsonify({'error': 'Current password is incorrect'}), 401
         
         # Update password
-        auth_manager = AuthManager('your-secret-key')
+        auth_manager = AuthManager(current_app.config['SECRET_KEY'])
         hashed_password = auth_manager.hash_password(data['new_password'])
         
         success = user_model.update_user(current_user['user_id'], {'password': hashed_password})

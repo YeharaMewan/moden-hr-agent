@@ -5,7 +5,7 @@ import google.generativeai as genai
 from datetime import datetime, timedelta
 import json
 import hashlib
-from agents.langgraph_router import create_agent_workflow, AgentState
+from agents.langgraph_router import AgentState
 
 class RouterAgent:
     """
@@ -69,7 +69,7 @@ class RouterAgent:
     
     def set_agent_references(self, leave_agent, ats_agent, payroll_agent):
         """
-        Set references to other agents and create LangGraph workflow
+        Set references to other agents for the workflow
         """
         self.agents = {
             'router_agent': self,
@@ -77,81 +77,42 @@ class RouterAgent:
             'ats_agent': ats_agent,
             'payroll_agent': payroll_agent
         }
-        
-        # Create LangGraph workflow
-        self.workflow = create_agent_workflow(self.agents)
-        print("✅ LangGraph workflow created with all agents")
+        # Workflow එක මෙහි නිර්මාණය නොකරයි.
+        print("✅ Agent references set for RouterAgent.")
     
     def process_message(self, message: str, user_context: Dict[str, Any], session_id: str) -> Dict[str, Any]:
         """
-        Enhanced message processing using LangGraph workflow
+        Process an incoming message to determine the correct agent route.
+        This now acts as the primary routing logic node within the LangGraph workflow.
         """
-        
         self.routing_requests += 1
-        
+
         try:
-            # Check if workflow is initialized
-            if not self.workflow:
-                return self._fallback_processing(message, user_context, session_id)
-            
-            # Get enhanced context from memory
-            memory_context = self.memory_manager.get_smart_context(
-                user_context.get('user_id'), message
-            )
-            
-            # Create initial state for LangGraph
-            initial_state = {
-                "messages": [message],
-                "user_context": user_context,
-                "original_message": message,
-                "intent": "",
-                "confidence": 0.0,
-                "entities": {},
-                "current_agent": "",
-                "tool_responses": [],
-                "requires_human_approval": False,
-                "human_approval_status": "none",
-                "final_response": "",
-                "session_id": session_id,
-                "timestamp": datetime.now().isoformat(),
-                "processing_steps": [],
-                "memory_context": memory_context,
-                # Pass agent references to the workflow
-                **self.agents
-            }
-            
-            print(f"🔄 Starting LangGraph workflow for: {message[:50]}...")
-            
-            # Execute the workflow
-            final_state = self.workflow.invoke(initial_state)
-            
-            # Extract result from final state
-            result = {
-                'success': bool(final_state.get("final_response")),
-                'response': final_state.get("final_response", "No response generated"),
-                'requires_action': final_state.get("requires_human_approval", False),
-                'agent': final_state.get("current_agent", "router"),
-                'confidence': final_state.get("confidence", 0.5),
-                'intent': final_state.get("intent", "general"),
-                'entities': final_state.get("entities", {}),
-                'processing_steps': final_state.get("processing_steps", []),
-                'tool_responses': final_state.get("tool_responses", []),
-                'timestamp': final_state.get("timestamp"),
-                'session_id': session_id
-            }
-            
-            if result['success']:
+            # Classify intent and extract entities directly.
+            intent, confidence, entities = self._enhanced_classify_intent(message, user_context)
+
+            # Route to the appropriate agent based on the classification.
+            routing_result = self.route_to_agent(intent, message, user_context, entities, confidence)
+
+            if routing_result.get('success'):
                 self.successful_routes += 1
-            
-            # Store interaction in memory
-            self._store_routing_memory(user_context.get('user_id'), message, result)
-            
-            print(f"✅ LangGraph workflow completed successfully")
-            return result
-            
+
+            # Store this routing decision in memory.
+            self._store_routing_memory(user_context.get('user_id'), message, routing_result)
+
+            print(f"✅ RouterAgent processed message, determined intent: {intent}")
+            return routing_result
+
         except Exception as e:
-            print(f"❌ LangGraph workflow error: {str(e)}")
-            return self._fallback_processing(message, user_context, session_id)
+            print(f"❌ RouterAgent processing error: {str(e)}")
+            # Fallback for critical errors within the router itself.
+            return {
+                'success': False,
+                'error': f'Router agent failed: {str(e)}',
+                'agent': 'router',
+                'confidence': 0.0,
+                'requires_action': False
+            }
     
     def _fallback_processing(self, message: str, user_context: Dict[str, Any], session_id: str) -> Dict[str, Any]:
         """

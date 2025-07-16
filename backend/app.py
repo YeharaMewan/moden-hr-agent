@@ -340,7 +340,6 @@ def test_workflow():
         }), 500
 
 # Initialize system on startup
-@app.before_first_request
 def initialize_system():
     """Initialize enhanced system components"""
     print("🚀 Initializing Enhanced HR AI System...")
@@ -380,4 +379,7 @@ if __name__ == '__main__':
     print("  • /api/workflow/test - Test workflow")
     print("=" * 60)
     
+    # Initialize the system before running the app
+    initialize_system()
+
     app.run(debug=True, host='0.0.0.0', port=5000)
