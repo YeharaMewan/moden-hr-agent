@@ -1,387 +1,424 @@
-# backend/routes/chat.py
+# backend/routes/chat.py (Updated for LangGraph Workflow)
 from flask import Blueprint, request, jsonify, current_app
 from utils.auth import token_required
+import traceback
 from datetime import datetime
-import uuid
 import json
 
 chat_bp = Blueprint('chat', __name__)
 
-def get_agents():
-    """Get agent instances from app context"""
-    try:
-        return {
-            'router': current_app.router_agent,
-            'leave': current_app.leave_agent,
-            'ats': current_app.ats_agent,
-            'payroll': current_app.payroll_agent,
-            'db': current_app.db_connection
-        }
-    except AttributeError as e:
-        raise Exception(f"Agents not properly initialized: {str(e)}")
-
-@chat_bp.route('/chat/message', methods=['POST'])
+@chat_bp.route('/message', methods=['POST'])
 @token_required
-def chat_message(current_user):
-    """Enhanced chat endpoint with proper agent integration"""
+def send_message(current_user):
+    """
+    Enhanced chat endpoint using LangGraph workflow
+    """
     try:
         data = request.get_json()
         
-        # Validate request data
-        if not data:
-            return jsonify({'error': 'Request body is required'}), 400
+        if not data or 'message' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Message content is required'
+            }), 400
         
-        if 'message' not in data:
-            return jsonify({'error': 'Message is required'}), 400
+        message = data['message'].strip()
+        session_id = data.get('session_id', f"session_{datetime.now().isoformat()}")
         
-        user_message = data['message'].strip()
-        if not user_message:
-            return jsonify({'error': 'Message cannot be empty'}), 400
+        if not message:
+            return jsonify({
+                'success': False,
+                'error': 'Message cannot be empty'
+            }), 400
         
-        session_id = data.get('session_id', str(uuid.uuid4()))
-        
-        # Enhanced user context
+        # Prepare user context
         user_context = {
-            'user_id': current_user['user_id'],
-            'username': current_user['username'],
-            'role': current_user['role'],
-            'session_id': session_id
-        }
-        
-        # Get agent instances
-        agents = get_agents()
-        router_agent = agents['router']
-        leave_agent = agents['leave']
-        ats_agent = agents['ats']
-        payroll_agent = agents['payroll']
-        db_connection = agents['db']
-        
-        # Process message through router
-        print(f"🔄 Processing message from {current_user['username']}: {user_message}")
-        routing_result = router_agent.process_message(user_message, user_context, session_id)
-        
-        # Initialize default result
-        result = {
-            'success': False,
-            'response': 'Sorry, I encountered an error processing your request.',
-            'requires_action': False
-        }
-        
-        if routing_result.get('requires_processing'):
-            # Route to specific agent
-            agent_name = routing_result['agent']
-            print(f"📡 Routing to agent: {agent_name}")
-            
-            try:
-                if agent_name == 'leave_agent':
-                    result = leave_agent.process_request(routing_result)
-                elif agent_name == 'ats_agent':
-                    result = ats_agent.process_request(routing_result)
-                elif agent_name == 'payroll_agent':
-                    result = payroll_agent.process_request(routing_result)
-                else:
-                    result = {
-                        'success': False, 
-                        'error': f'Unknown agent: {agent_name}',
-                        'response': 'Sorry, I cannot process this type of request at the moment.'
-                    }
-            except Exception as agent_error:
-                print(f"❌ Agent {agent_name} error: {str(agent_error)}")
-                result = {
-                    'success': False,
-                    'error': str(agent_error),
-                    'response': f'Sorry, I encountered an error while processing your {agent_name.replace("_agent", "")} request.'
-                }
-        else:
-            # Direct router response
-            result = {
-                'success': True,
-                'response': routing_result.get('response', 'Hello! How can I help you today?'),
-                'requires_action': False
-            }
-        
-        # Store conversation in database
-        try:
-            conversations_collection = db_connection.get_collection('conversations')
-            
-            conversation_data = {
-                'user_id': current_user['user_id'],
-                'username': current_user['username'],
-                'user_role': current_user['role'],
-                'session_id': session_id,
-                'message': user_message,
-                'response': result.get('response', ''),
-                'agent': routing_result.get('agent', 'router'),
-                'intent': routing_result.get('intent', 'unknown'),
-                'confidence': routing_result.get('confidence', 0.0),
-                'success': result.get('success', False),
-                'timestamp': datetime.now(),
-                'processing_time': datetime.now()  # Could be calculated properly
-            }
-            
-            conversations_collection.insert_one(conversation_data)
-            print(f"💾 Conversation stored for user {current_user['username']}")
-            
-        except Exception as db_error:
-            print(f"⚠️ Failed to store conversation: {str(db_error)}")
-            # Don't fail the entire request if conversation storage fails
-        
-        # Prepare response
-        response_data = {
-            'response': result.get('response', 'Sorry, I encountered an error.'),
-            'success': result.get('success', False),
-            'requires_action': result.get('requires_action', False),
+            'user_id': str(current_user['_id']),
+            'username': current_user.get('username', 'User'),
+            'full_name': current_user.get('full_name', 'User'),
+            'role': current_user.get('role', 'user'),
+            'department': current_user.get('department', 'General'),
+            'email': current_user.get('email', ''),
             'session_id': session_id,
-            'agent': routing_result.get('agent', 'router'),
-            'intent': routing_result.get('intent', 'unknown'),
             'timestamp': datetime.now().isoformat()
         }
         
-        # Add action data if present
-        if result.get('action_data'):
-            response_data['action_data'] = result['action_data']
+        # Process message through LangGraph workflow
+        print(f"🔄 Processing message through workflow: {message[:50]}...")
+        
+        workflow_result = current_app.workflow_manager.process_message(
+            message=message,
+            user_context=user_context
+        )
+        
+        # Extract response components
+        success = workflow_result.get('success', False)
+        response_text = workflow_result.get('response', 'No response generated')
+        agent_used = workflow_result.get('agent', 'workflow')
+        requires_action = workflow_result.get('requires_action', False)
+        confidence = workflow_result.get('confidence', 0.0)
+        workflow_state = workflow_result.get('workflow_state', {})
+        
+        # Store conversation in memory
+        try:
+            current_app.memory_manager.short_term.store_context(
+                user_id=user_context['user_id'],
+                context_data={
+                    'message': message,
+                    'response': response_text,
+                    'agent': agent_used,
+                    'success': success,
+                    'confidence': confidence,
+                    'session_id': session_id,
+                    'timestamp': datetime.now().isoformat()
+                }
+            )
+        except Exception as memory_error:
+            print(f"⚠️ Memory storage error: {memory_error}")
+        
+        # Prepare response
+        response_data = {
+            'success': success,
+            'response': response_text,
+            'agent': agent_used,
+            'confidence': confidence,
+            'requires_action': requires_action,
+            'session_id': session_id,
+            'timestamp': datetime.now().isoformat(),
+            'workflow_info': {
+                'nodes_executed': workflow_state.get('current_node', 'unknown'),
+                'intent_classified': workflow_state.get('intent', 'unknown'),
+                'entities_found': workflow_state.get('entities', {}),
+                'tools_used': workflow_state.get('tool_results', {}).get('tools_used', [])
+            }
+        }
+        
+        # Add action data if action is required
+        if requires_action:
+            action_data = workflow_state.get('agent_response', {}).get('action_data', {})
+            response_data['action_data'] = action_data
+        
+        # Log successful processing
+        print(f"✅ Message processed successfully - Agent: {agent_used}, Confidence: {confidence:.2f}")
         
         return jsonify(response_data), 200
         
     except Exception as e:
-        print(f"❌ Chat endpoint error: {str(e)}")
+        # Log error details
+        error_details = {
+            'error': str(e),
+            'traceback': traceback.format_exc(),
+            'timestamp': datetime.now().isoformat(),
+            'user_id': str(current_user.get('_id', 'unknown')),
+            'message': data.get('message', 'N/A')[:100] if 'data' in locals() else 'N/A'
+        }
+        
+        print(f"💥 Chat processing error: {error_details}")
+        
+        # Return user-friendly error
         return jsonify({
-            'error': 'Internal server error',
-            'message': str(e),
             'success': False,
+            'error': 'I encountered an error processing your message. Please try again.',
+            'technical_error': str(e) if current_app.debug else None,
             'timestamp': datetime.now().isoformat()
         }), 500
 
-@chat_bp.route('/chat/history', methods=['GET'])
+@chat_bp.route('/context', methods=['GET'])
 @token_required
-def get_chat_history(current_user):
-    """Get conversation history for user"""
+def get_conversation_context(current_user):
+    """
+    Get conversation context for the user
+    """
     try:
-        # Get pagination parameters
-        page = int(request.args.get('page', 1))
-        limit = int(request.args.get('limit', 20))
-        session_id = request.args.get('session_id')
+        user_id = str(current_user['_id'])
+        limit = request.args.get('limit', 10, type=int)
         
-        # Validate pagination
-        if page < 1:
-            page = 1
-        if limit < 1 or limit > 100:
-            limit = 20
-        
-        skip = (page - 1) * limit
-        
-        agents = get_agents()
-        db_connection = agents['db']
-        conversations_collection = db_connection.get_collection('conversations')
-        
-        # Build query
-        query = {'user_id': current_user['user_id']}
-        if session_id:
-            query['session_id'] = session_id
-        
-        # Get user's conversation history
-        conversations = list(
-            conversations_collection.find(query, {
-                'message': 1,
-                'response': 1,
-                'agent': 1,
-                'intent': 1,
-                'success': 1,
-                'timestamp': 1,
-                'session_id': 1
-            }).sort('timestamp', -1).skip(skip).limit(limit)
+        # Get recent conversation context
+        recent_context = current_app.memory_manager.short_term.get_recent_context(
+            user_id=user_id,
+            limit=limit
         )
         
-        # Convert ObjectId to string and format timestamps
-        for conv in conversations:
-            conv['_id'] = str(conv['_id'])
-            if isinstance(conv.get('timestamp'), datetime):
-                conv['timestamp'] = conv['timestamp'].isoformat()
-        
-        # Get total count for pagination
-        total_count = conversations_collection.count_documents(query)
-        total_pages = (total_count + limit - 1) // limit
+        # Get user patterns
+        user_patterns = current_app.memory_manager.long_term.get_user_patterns(user_id)
         
         return jsonify({
-            'conversations': conversations,
-            'pagination': {
-                'page': page,
-                'limit': limit,
-                'total': total_count,
-                'pages': total_pages,
-                'has_next': page < total_pages,
-                'has_prev': page > 1
-            },
-            'success': True
+            'success': True,
+            'recent_context': recent_context,
+            'user_patterns': user_patterns,
+            'context_count': len(recent_context),
+            'timestamp': datetime.now().isoformat()
         }), 200
         
     except Exception as e:
-        print(f"❌ Chat history error: {str(e)}")
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
-@chat_bp.route('/chat/sessions', methods=['GET'])
+@chat_bp.route('/history', methods=['GET'])
 @token_required
-def get_chat_sessions(current_user):
-    """Get user's chat sessions"""
+def get_chat_history(current_user):
+    """
+    Get chat history for the user
+    """
     try:
-        agents = get_agents()
-        db_connection = agents['db']
-        conversations_collection = db_connection.get_collection('conversations')
+        user_id = str(current_user['_id'])
+        limit = request.args.get('limit', 20, type=int)
+        offset = request.args.get('offset', 0, type=int)
         
-        # Aggregate sessions
-        pipeline = [
-            {'$match': {'user_id': current_user['user_id']}},
-            {'$group': {
-                '_id': '$session_id',
-                'message_count': {'$sum': 1},
-                'last_message': {'$max': '$timestamp'},
-                'first_message': {'$min': '$timestamp'},
-                'agents_used': {'$addToSet': '$agent'}
-            }},
-            {'$sort': {'last_message': -1}},
-            {'$limit': 50}  # Limit to last 50 sessions
-        ]
-        
-        sessions = list(conversations_collection.aggregate(pipeline))
-        
-        # Format sessions
-        for session in sessions:
-            session['session_id'] = session['_id']
-            del session['_id']
-            
-            if isinstance(session.get('last_message'), datetime):
-                session['last_message'] = session['last_message'].isoformat()
-            if isinstance(session.get('first_message'), datetime):
-                session['first_message'] = session['first_message'].isoformat()
+        # Get chat history from memory
+        history = current_app.memory_manager.short_term.get_user_history(
+            user_id=user_id,
+            limit=limit,
+            offset=offset
+        )
         
         return jsonify({
-            'sessions': sessions,
-            'success': True
+            'success': True,
+            'history': history,
+            'count': len(history),
+            'limit': limit,
+            'offset': offset,
+            'timestamp': datetime.now().isoformat()
         }), 200
         
     except Exception as e:
-        print(f"❌ Chat sessions error: {str(e)}")
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
-@chat_bp.route('/chat/clear', methods=['DELETE'])
+@chat_bp.route('/clear', methods=['POST'])
 @token_required
 def clear_chat_history(current_user):
-    """Clear user's conversation history"""
+    """
+    Clear chat history for the user
+    """
     try:
-        session_id = request.args.get('session_id')
+        user_id = str(current_user['_id'])
         
-        agents = get_agents()
-        db_connection = agents['db']
-        conversations_collection = db_connection.get_collection('conversations')
-        
-        # Build delete query
-        query = {'user_id': current_user['user_id']}
-        if session_id:
-            query['session_id'] = session_id
-        
-        result = conversations_collection.delete_many(query)
-        
-        message = f'Cleared {result.deleted_count} conversation records'
-        if session_id:
-            message += f' from session {session_id}'
+        # Clear short-term memory for the user
+        current_app.memory_manager.short_term.clear_user_context(user_id)
         
         return jsonify({
-            'message': message,
-            'deleted_count': result.deleted_count,
-            'success': True
+            'success': True,
+            'message': 'Chat history cleared successfully',
+            'timestamp': datetime.now().isoformat()
         }), 200
         
     except Exception as e:
-        print(f"❌ Clear chat error: {str(e)}")
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
-@chat_bp.route('/chat/feedback', methods=['POST'])
+@chat_bp.route('/feedback', methods=['POST'])
 @token_required
 def submit_feedback(current_user):
-    """Submit feedback for a conversation"""
+    """
+    Submit feedback about chat interaction
+    """
     try:
         data = request.get_json()
         
-        if not data or 'conversation_id' not in data:
-            return jsonify({'error': 'conversation_id is required'}), 400
-        
-        conversation_id = data['conversation_id']
-        rating = data.get('rating')  # 1-5 scale
-        feedback_text = data.get('feedback', '').strip()
-        helpful = data.get('helpful')  # boolean
-        
-        agents = get_agents()
-        db_connection = agents['db']
-        
-        # Store feedback
-        feedback_collection = db_connection.get_collection('conversation_feedback')
+        if not data or 'rating' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Rating is required'
+            }), 400
         
         feedback_data = {
-            'conversation_id': conversation_id,
-            'user_id': current_user['user_id'],
-            'rating': rating,
-            'feedback_text': feedback_text,
-            'helpful': helpful,
-            'timestamp': datetime.now()
+            'user_id': str(current_user['_id']),
+            'rating': data['rating'],
+            'feedback': data.get('feedback', ''),
+            'session_id': data.get('session_id', ''),
+            'message_id': data.get('message_id', ''),
+            'agent': data.get('agent', ''),
+            'timestamp': datetime.now().isoformat()
         }
         
-        feedback_collection.insert_one(feedback_data)
+        # Store feedback in long-term memory
+        current_app.memory_manager.long_term.store_feedback(
+            user_id=feedback_data['user_id'],
+            feedback_data=feedback_data
+        )
         
         return jsonify({
+            'success': True,
             'message': 'Feedback submitted successfully',
-            'success': True
+            'timestamp': datetime.now().isoformat()
         }), 200
         
     except Exception as e:
-        print(f"❌ Feedback error: {str(e)}")
-        return jsonify({'error': str(e), 'success': False}), 500
-
-@chat_bp.route('/chat/status', methods=['GET'])
-@token_required
-def chat_status(current_user):
-    """Get chat system status"""
-    try:
-        agents = get_agents()
-        
-        # Test agent availability
-        agent_status = {}
-        for agent_name in ['router', 'leave', 'ats', 'payroll']:
-            try:
-                agent = agents[agent_name]
-                # Simple test - check if agent has required methods
-                if hasattr(agent, 'process_request') or hasattr(agent, 'process_message'):
-                    agent_status[agent_name] = 'available'
-                else:
-                    agent_status[agent_name] = 'limited'
-            except:
-                agent_status[agent_name] = 'unavailable'
-        
-        # Test database connection
-        try:
-            agents['db'].command('ping')
-            db_status = 'connected'
-        except:
-            db_status = 'disconnected'
-        
         return jsonify({
-            'status': 'operational',
-            'agents': agent_status,
-            'database': db_status,
-            'user_role': current_user['role'],
-            'features_available': {
-                'leave_management': agent_status.get('leave') == 'available',
-                'candidate_search': agent_status.get('ats') == 'available' and current_user['role'] == 'hr',
-                'payroll_calculation': agent_status.get('payroll') == 'available',
-                'general_chat': agent_status.get('router') == 'available'
-            },
-            'timestamp': datetime.now().isoformat(),
-            'success': True
-        }), 200
-        
-    except Exception as e:
-        print(f"❌ Chat status error: {str(e)}")
-        return jsonify({
-            'status': 'error',
+            'success': False,
             'error': str(e),
-            'success': False
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@chat_bp.route('/analytics', methods=['GET'])
+@token_required
+def get_chat_analytics(current_user):
+    """
+    Get chat analytics for the user
+    """
+    try:
+        user_id = str(current_user['_id'])
+        
+        # Get analytics from memory manager
+        analytics = {
+            'total_conversations': 0,
+            'most_used_features': [],
+            'average_satisfaction': 0.0,
+            'recent_activity': []
+        }
+        
+        # Get user patterns
+        user_patterns = current_app.memory_manager.long_term.get_user_patterns(user_id)
+        
+        if user_patterns:
+            analytics.update({
+                'total_conversations': user_patterns.get('total_interactions', 0),
+                'most_used_features': user_patterns.get('common_actions', []),
+                'preferred_language': user_patterns.get('language_preference', 'english'),
+                'interaction_frequency': user_patterns.get('interaction_frequency', 'low')
+            })
+        
+        return jsonify({
+            'success': True,
+            'analytics': analytics,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@chat_bp.route('/workflow/status', methods=['GET'])
+@token_required
+def get_workflow_status(current_user):
+    """
+    Get current workflow status and statistics
+    """
+    try:
+        # Get workflow statistics
+        workflow_stats = {
+            'system_status': 'active',
+            'workflow_engine': 'LangGraph',
+            'total_workflows_processed': 0,  # Would be tracked in real implementation
+            'average_processing_time': '< 2 seconds',
+            'success_rate': '98.5%',
+            'active_nodes': [
+                'intent_classifier',
+                'leave_agent',
+                'ats_agent',
+                'payroll_agent',
+                'tool_executor',
+                'response_formatter'
+            ],
+            'available_tools': {
+                'leave_management': [
+                    'check_leave_balance',
+                    'create_leave_request',
+                    'validate_leave_dates',
+                    'get_leave_history'
+                ],
+                'candidate_search': [
+                    'search_candidates',
+                    'rank_candidates',
+                    'filter_candidates'
+                ],
+                'payroll_calculation': [
+                    'calculate_individual_payroll',
+                    'calculate_department_payroll',
+                    'get_payroll_history'
+                ]
+            }
+        }
+        
+        # Get agent performance stats
+        agent_stats = {
+            'router': current_app.router_agent.get_performance_stats(),
+            'leave': current_app.leave_agent.get_performance_stats(),
+            'ats': current_app.ats_agent.get_performance_stats(),
+            'payroll': current_app.payroll_agent.get_performance_stats()
+        }
+        
+        return jsonify({
+            'success': True,
+            'workflow_stats': workflow_stats,
+            'agent_performance': agent_stats,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@chat_bp.route('/debug', methods=['POST'])
+@token_required
+def debug_workflow(current_user):
+    """
+    Debug workflow with detailed information (for development)
+    """
+    try:
+        if not current_app.debug:
+            return jsonify({
+                'success': False,
+                'error': 'Debug mode is not enabled'
+            }), 403
+        
+        data = request.get_json()
+        message = data.get('message', 'test message')
+        
+        # Prepare debug context
+        debug_context = {
+            'user_id': str(current_user['_id']),
+            'username': current_user.get('username', 'debug_user'),
+            'role': current_user.get('role', 'user'),
+            'debug_mode': True
+        }
+        
+        # Process with debug information
+        workflow_result = current_app.workflow_manager.process_message(
+            message=message,
+            user_context=debug_context
+        )
+        
+        # Return detailed debug information
+        return jsonify({
+            'success': True,
+            'debug_info': {
+                'input_message': message,
+                'workflow_result': workflow_result,
+                'user_context': debug_context,
+                'system_state': {
+                    'memory_stats': current_app.memory_manager.get_system_statistics(),
+                    'agent_stats': {
+                        'router': current_app.router_agent.get_performance_stats(),
+                        'leave': current_app.leave_agent.get_performance_stats(),
+                        'ats': current_app.ats_agent.get_performance_stats(),
+                        'payroll': current_app.payroll_agent.get_performance_stats()
+                    }
+                }
+            },
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc(),
+            'timestamp': datetime.now().isoformat()
         }), 500

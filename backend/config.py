@@ -1,157 +1,143 @@
 # backend/config.py
 import os
+from pymongo import MongoClient
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
 class Config:
-    """Base configuration class"""
+    """Application configuration"""
     
-    # Flask Configuration
-    SECRET_KEY = os.getenv('SECRET_KEY', 'your-super-secret-key-here-change-in-production')
-    FLASK_ENV = os.getenv('FLASK_ENV', 'development')
-    FLASK_DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
-    
-    # Database Configuration - Fixed to use MONGODB_URI from .env
-    MONGO_URI = os.getenv('MONGODB_URI') or os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-    DB_NAME = os.getenv('DB_NAME', 'hr_ai_system')
+    # Database configuration
+    MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+    DATABASE_NAME = os.getenv('DATABASE_NAME', 'hr_ai_system')
     
     # API Keys
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
     
-    # File Upload Settings
-    UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'data/cv_files')
-    MAX_CONTENT_LENGTH = int(os.getenv('MAX_CONTENT_LENGTH', str(16 * 1024 * 1024)))  # 16MB
-    ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx'}
+    # Flask configuration
+    SECRET_KEY = os.getenv('SECRET_KEY', 'hr-ai-secret-key-2024')
+    DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
     
-    # Memory Settings
-    SHORT_TERM_TTL_HOURS = int(os.getenv('SHORT_TERM_TTL_HOURS', '1'))
-    LONG_TERM_TTL_DAYS = int(os.getenv('LONG_TERM_TTL_DAYS', '30'))
+    # JWT configuration
+    JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'jwt-secret-key-2024')
+    JWT_ACCESS_TOKEN_EXPIRES = 3600  # 1 hour
     
-    # Security Settings
-    JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY') or SECRET_KEY
-    JWT_EXPIRATION_HOURS = int(os.getenv('JWT_EXPIRATION_HOURS', '24'))
-    BCRYPT_ROUNDS = int(os.getenv('BCRYPT_ROUNDS', '12'))
+    # Memory configuration
+    SHORT_TERM_MEMORY_EXPIRY = 3600  # 1 hour
+    LONG_TERM_MEMORY_EXPIRY = 2592000  # 30 days
     
-    # Application Settings
-    HOST = os.getenv('HOST', '0.0.0.0')
-    PORT = int(os.getenv('PORT', '5000'))
-    
-    # CORS Settings
-    CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',')
-    
-    # Vector Database Settings
-    VECTOR_DB_URI = os.getenv('VECTOR_DB_URI') or MONGO_URI
-    VECTOR_COLLECTION = os.getenv('VECTOR_COLLECTION', 'vector_embeddings')
-    
-    # Agent Settings
-    AGENT_TIMEOUT = int(os.getenv('AGENT_TIMEOUT', '30'))  # seconds
-    MAX_RETRIES = int(os.getenv('MAX_RETRIES', '3'))
-    
-    # Logging Settings
-    LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
-    LOG_FILE = os.getenv('LOG_FILE', 'logs/hr_ai.log')
-    
-    @staticmethod
-    def validate_config():
-        """Validate required configuration"""
-        required_vars = ['GEMINI_API_KEY']
-        missing = []
-        
-        for var in required_vars:
-            if not os.getenv(var):
-                missing.append(var)
-        
-        if missing:
-            raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
-        
-        # Validate database URI
-        mongo_uri = os.getenv('MONGODB_URI') or os.getenv('MONGO_URI')
-        if not mongo_uri or mongo_uri == 'mongodb://localhost:27017/':
-            print("⚠️ Warning: Using default MongoDB URI. Consider setting MONGODB_URI in .env")
-        
-        return True
-    
-    @classmethod
-    def get_database_config(cls):
-        """Get database configuration"""
-        return {
-            'uri': cls.MONGO_URI,
-            'db_name': cls.DB_NAME,
-            'vector_collection': cls.VECTOR_COLLECTION
-        }
-    
-    @classmethod
-    def get_agent_config(cls):
-        """Get agent configuration"""
-        return {
-            'gemini_api_key': cls.GEMINI_API_KEY,
-            'timeout': cls.AGENT_TIMEOUT,
-            'max_retries': cls.MAX_RETRIES,
-            'short_term_ttl': cls.SHORT_TERM_TTL_HOURS,
-            'long_term_ttl': cls.LONG_TERM_TTL_DAYS
-        }
+    # Performance configuration
+    CACHE_SIZE = 1000
+    MAX_RESPONSE_LENGTH = 2000
 
-class DevelopmentConfig(Config):
-    """Development environment configuration"""
-    DEBUG = True
-    TESTING = False
-    FLASK_ENV = 'development'
-    
-    # More verbose logging in development
-    LOG_LEVEL = 'DEBUG'
+# Global database connection
+_db_connection = None
 
-class ProductionConfig(Config):
-    """Production environment configuration"""
-    DEBUG = False
-    TESTING = False
-    FLASK_ENV = 'production'
+def get_database_connection():
+    """
+    Get database connection (singleton pattern)
+    """
+    global _db_connection
     
-    # Stricter settings for production
-    LOG_LEVEL = 'WARNING'
-    MAX_CONTENT_LENGTH = 8 * 1024 * 1024  # 8MB in production
+    if _db_connection is None:
+        try:
+            print("🔌 Connecting to MongoDB...")
+            
+            # Create MongoDB client
+            client = MongoClient(
+                Config.MONGO_URI,
+                serverSelectionTimeoutMS=5000,  # 5 second timeout
+                connectTimeoutMS=10000,         # 10 second timeout
+                socketTimeoutMS=20000           # 20 second timeout
+            )
+            
+            # Test connection
+            client.admin.command('ping')
+            print("✅ MongoDB connection successful!")
+            
+            # Get database
+            _db_connection = client[Config.DATABASE_NAME]
+            
+            # Create indexes for performance
+            _create_database_indexes(_db_connection)
+            
+        except Exception as e:
+            print(f"❌ Database connection failed: {e}")
+            print("🔧 Please check:")
+            print("   1. MongoDB is running")
+            print("   2. MONGO_URI in .env file is correct")
+            print("   3. Network connectivity")
+            raise
     
-    @staticmethod
-    def validate_config():
-        """Additional validation for production"""
-        Config.validate_config()
+    return _db_connection
+
+def _create_database_indexes(db):
+    """Create database indexes for performance"""
+    try:
+        print("📊 Creating database indexes...")
         
-        # Check for strong secret keys in production
-        secret_key = os.getenv('SECRET_KEY')
-        if not secret_key or secret_key == 'your-super-secret-key-here-change-in-production':
-            raise ValueError("Strong SECRET_KEY required in production")
+        # User collection indexes
+        db.users.create_index([('username', 1)], unique=True)
+        db.users.create_index([('email', 1)], unique=True)
+        db.users.create_index([('role', 1)])
         
-        jwt_secret = os.getenv('JWT_SECRET_KEY')
-        if not jwt_secret or jwt_secret == secret_key:
-            raise ValueError("Separate JWT_SECRET_KEY required in production")
+        # Leave collection indexes
+        db.leaves.create_index([('user_id', 1)])
+        db.leaves.create_index([('status', 1)])
+        db.leaves.create_index([('start_date', 1)])
+        db.leaves.create_index([('created_at', -1)])
+        
+        # Candidate collection indexes
+        db.candidates.create_index([('name', 1)])
+        db.candidates.create_index([('skills', 1)])
+        db.candidates.create_index([('experience_years', 1)])
+        db.candidates.create_index([('created_at', -1)])
+        
+        # Payroll collection indexes
+        db.payroll.create_index([('user_id', 1)])
+        db.payroll.create_index([('department', 1)])
+        db.payroll.create_index([('pay_period', 1)])
+        db.payroll.create_index([('created_at', -1)])
+        
+        # Memory collection indexes
+        db.short_term_memory.create_index([('user_id', 1)])
+        db.short_term_memory.create_index([('session_id', 1)])
+        db.short_term_memory.create_index([('expires_at', 1)], expireAfterSeconds=0)
+        
+        db.long_term_memory.create_index([('user_id', 1)])
+        db.long_term_memory.create_index([('memory_type', 1)])
+        db.long_term_memory.create_index([('created_at', -1)])
+        
+        print("✅ Database indexes created successfully")
+        
+    except Exception as e:
+        print(f"⚠️ Index creation warning: {e}")
 
-class TestingConfig(Config):
-    """Testing environment configuration"""
-    DEBUG = True
-    TESTING = True
-    FLASK_ENV = 'testing'
-    
-    # Use test database
-    DB_NAME = 'hr_ai_system_test'
-    
-    # Faster settings for testing
-    BCRYPT_ROUNDS = 4
-    JWT_EXPIRATION_HOURS = 1
-    SHORT_TERM_TTL_HOURS = 1
-    LONG_TERM_TTL_DAYS = 1
+def get_config():
+    """Get application configuration"""
+    return Config
 
-# Configuration mapping
-config = {
-    'development': DevelopmentConfig,
-    'production': ProductionConfig,
-    'testing': TestingConfig,
-    'default': DevelopmentConfig
-}
-
-def get_config(config_name=None):
-    """Get configuration by name"""
-    if config_name is None:
-        config_name = os.getenv('FLASK_ENV', 'default')
+def validate_configuration():
+    """Validate required configuration"""
+    required_env_vars = ['GEMINI_API_KEY']
+    missing_vars = []
     
-    return config.get(config_name, config['default'])
+    for var in required_env_vars:
+        if not os.getenv(var):
+            missing_vars.append(var)
+    
+    if missing_vars:
+        print(f"❌ Missing required environment variables: {', '.join(missing_vars)}")
+        print("Please add them to your .env file")
+        return False
+    
+    return True
+
+# Initialize configuration validation
+if not validate_configuration():
+    print("💡 Create a .env file with required variables:")
+    print("GEMINI_API_KEY=your_gemini_api_key_here")
+    print("MONGO_URI=mongodb://localhost:27017/")
+    print("DATABASE_NAME=hr_ai_system")
