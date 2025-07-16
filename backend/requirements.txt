@@ -1,0 +1,59 @@
+# backend/requirements.txt
+# Core Flask Application
+flask==2.3.3
+flask-cors==4.0.0
+werkzeug==2.3.7
+
+# Database
+pymongo==4.5.0
+bson  # Usually comes with pymongo, but explicitly added
+
+# AI and ML Libraries
+google-generativeai==0.3.0
+sentence-transformers==2.2.2
+numpy==1.24.3
+faiss-cpu==1.7.4
+tiktoken==0.5.1
+
+# LangChain (Optional - not strictly required for current implementation)
+langchain>=0.1.0
+langsmith>=0.1.112,<0.2.0
+langgraph==0.0.62
+
+# Authentication and Security
+bcrypt==4.0.1
+PyJWT==2.8.0
+
+# File Processing
+python-docx==0.8.11
+PyPDF2==3.0.1
+python-multipart==0.0.6
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+pandas==2.0.3
+
+# Additional dependencies that might be needed
+scikit-learn==1.3.0  # For sentence-transformers
+torch==2.0.1  # For sentence-transformers (CPU version)
+transformers==4.30.0  # For sentence-transformers
+
+# Development and Testing (optional)
+pytest==7.4.0
+pytest-flask==1.2.0
+
+# Minimal requirements version (if you want to reduce dependencies)
+# Copy this section to requirements-minimal.txt if needed:
+# flask==2.3.3
+# flask-cors==4.0.0
+# pymongo==4.5.0
+# google-generativeai==0.3.0
+# sentence-transformers==2.2.2
+# numpy==1.24.3
+# bcrypt==4.0.1
+# PyJWT==2.8.0
+# python-docx==0.8.11
+# PyPDF2==3.0.1
+# python-dotenv==1.0.0
+# requests==2.31.0

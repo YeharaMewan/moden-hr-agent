@@ -1,0 +1,25 @@
+Sarah Johnson
+sarah.johnson@email.com
++94772345678
+
+Frontend Developer
+
+Professional Summary:
+Creative and detail-oriented Frontend Developer with 3+ years of experience in building responsive web applications using modern JavaScript frameworks.
+
+Technical Skills:
+- JavaScript, TypeScript, ES6+
+- React.js, Redux, Context API
+- HTML5, CSS3, SASS, Bootstrap
+- Node.js, Express.js
+- Git, Webpack, Babel
+- Responsive Design, UI/UX
+
+Work Experience:
+Frontend Developer at Tech Solutions (2021-2024)
+- Developed and maintained React-based web applications
+- Collaborated with UX/UI designers to implement pixel-perfect designs
+- Optimized application performance and loading times
+
+Education:
+BSc Information Technology, SLIIT (2020)

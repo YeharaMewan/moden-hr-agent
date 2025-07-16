@@ -1,0 +1,24 @@
+John Smith
+Email: john.smith@email.com
+Phone: +94771234567
+
+Senior Java Developer
+
+Experience:
+5+ years of experience in Java development with expertise in Spring Boot, microservices architecture.
+Worked on large-scale enterprise applications and REST API development.
+
+Skills:
+- Java, Spring Boot, Spring Security
+- MySQL, PostgreSQL, MongoDB
+- Docker, Kubernetes, AWS
+- Git, Jenkins, Maven
+- Microservices, REST APIs
+
+Education:
+BSc Computer Science, University of Colombo (2018)
+
+Projects:
+- E-commerce platform using Spring Boot and React
+- Microservices architecture for banking system
+- Real-time chat application with WebSocket

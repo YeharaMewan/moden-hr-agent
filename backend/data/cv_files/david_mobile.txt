@@ -1,0 +1,32 @@
+David Fernando
+david.fernando@email.com
+Mobile: +94775678901
+
+Mobile Application Developer
+
+Overview:
+Passionate mobile developer with 3+ years of experience in creating cross-platform and native mobile applications.
+
+Technical Skills:
+- Flutter, Dart
+- React Native, JavaScript
+- Android (Java, Kotlin)
+- iOS (Swift, Objective-C)
+- Firebase, Firestore
+- REST APIs, GraphQL
+- Git, Android Studio, Xcode
+
+Portfolio Projects:
+- E-learning mobile app with 10K+ downloads
+- Food delivery app with real-time tracking
+- Social media app with chat functionality
+- Fitness tracking app with wearable integration
+
+Experience:
+Mobile Developer at InnoApps (2021-2024)
+- Developed 8+ mobile applications for various clients
+- Maintained 4.5+ star rating on app stores
+- Collaborated with backend teams for API integration
+
+Education:
+BSc Software Engineering, NSBM (2020)

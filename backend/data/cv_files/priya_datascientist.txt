@@ -1,0 +1,26 @@
+Dr. Priya Perera
+priya.perera@email.com
++94774567890
+
+Data Scientist & Machine Learning Engineer
+
+Profile:
+PhD in Data Science with 6+ years of experience in machine learning, statistical analysis, and big data processing.
+
+Technical Expertise:
+- Python, R, SQL, Scala
+- Machine Learning: Scikit-learn, TensorFlow, PyTorch
+- Data Processing: Pandas, NumPy, Spark
+- Visualization: Matplotlib, Seaborn, Plotly, Tableau
+- Cloud Platforms: AWS SageMaker, Google AI Platform
+- Databases: PostgreSQL, MongoDB, Cassandra
+
+Research & Development:
+- Published 15+ research papers in machine learning conferences
+- Developed predictive models for financial risk assessment
+- Built recommendation systems for e-commerce platforms
+- Expertise in NLP, computer vision, and time series analysis
+
+Education:
+PhD Data Science, University of Colombo (2022)
+MSc Statistics, University of Peradeniya (2018)

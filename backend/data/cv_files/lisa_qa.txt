@@ -1,0 +1,33 @@
+Lisa Garcia
+lisa.garcia@email.com
+Phone: +94776789012
+
+Quality Assurance Engineer
+
+Professional Summary:
+Detail-oriented QA Engineer with 4+ years of experience in manual and automated testing across web and mobile applications.
+
+Testing Expertise:
+- Selenium WebDriver, TestNG, JUnit
+- Postman, REST Assured for API testing
+- Cucumber, BDD, Gherkin
+- JIRA, TestRail, Bugzilla
+- Java, Python for test automation
+- Performance Testing: JMeter, LoadRunner
+- Mobile Testing: Appium
+
+Experience:
+Senior QA Engineer at QualityFirst Solutions (2020-2024)
+- Designed and executed comprehensive test plans
+- Automated 70% of regression test cases
+- Reduced bug leakage to production by 85%
+- Mentored junior QA team members
+
+Testing Methodologies:
+- Agile/Scrum testing practices
+- Risk-based testing approach
+- Continuous integration testing
+- Cross-browser and cross-platform testing
+
+Education:
+BSc Information Systems, University of Sri Jayewardenepura (2019)

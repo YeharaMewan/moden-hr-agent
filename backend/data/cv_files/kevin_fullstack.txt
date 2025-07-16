@@ -1,0 +1,35 @@
+Kevin Rajapakse
+kevin.raj@email.com
++94777890123
+
+Full Stack Developer
+
+Technical Profile:
+Versatile Full Stack Developer with 4+ years of experience in end-to-end web application development.
+
+Frontend Technologies:
+- React.js, Vue.js, Angular
+- JavaScript, TypeScript, HTML5, CSS3
+- Bootstrap, Tailwind CSS, Material-UI
+- Redux, Vuex, RxJS
+
+Backend Technologies:
+- Node.js, Express.js, Nest.js
+- Python, Django, FastAPI
+- PHP, Laravel
+- RESTful APIs, GraphQL
+
+Database & DevOps:
+- MySQL, PostgreSQL, MongoDB
+- Redis, Elasticsearch
+- Docker, AWS, Heroku
+- Git, CI/CD pipelines
+
+Recent Projects:
+- E-commerce platform with payment integration
+- Real-time collaboration tool
+- Hospital management system
+- Property management web application
+
+Education:
+BSc Computer Science, University of Kelaniya (2019)

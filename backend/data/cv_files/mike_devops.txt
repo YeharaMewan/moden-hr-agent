@@ -1,0 +1,30 @@
+Michael Wilson
+Email: mike.wilson@email.com
+Contact: +94773456789
+
+DevOps Engineer
+
+Summary:
+Experienced DevOps Engineer with 4+ years in cloud infrastructure management, containerization, and CI/CD pipeline automation.
+
+Core Competencies:
+- AWS, Azure, Google Cloud Platform
+- Docker, Kubernetes, Helm
+- Terraform, Ansible, CloudFormation
+- Jenkins, GitLab CI, GitHub Actions
+- Linux, Bash scripting, Python
+- Monitoring: Prometheus, Grafana, ELK Stack
+
+Professional Experience:
+DevOps Engineer at CloudTech Inc. (2020-2024)
+- Managed AWS infrastructure for multiple client projects
+- Implemented CI/CD pipelines reducing deployment time by 60%
+- Containerized legacy applications using Docker and Kubernetes
+- Automated infrastructure provisioning using Terraform
+
+Certifications:
+- AWS Certified Solutions Architect
+- Certified Kubernetes Administrator (CKA)
+
+Education:
+BSc Computer Engineering, University of Moratuwa (2019)
