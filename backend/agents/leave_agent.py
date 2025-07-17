@@ -91,31 +91,33 @@ class LeaveAgent(BaseAgent):
     
     def process_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Enhanced leave request processing with intelligent workflow
+        Streamlined leave request processing that trusts the incoming intent.
         """
         try:
-            # Extract request components
+            # Trust the intent classified by the RouterAgent
             intent = request_data.get('intent')
             message = request_data.get('message')
-            entities = request_data.get('entities', {})
             user_context = request_data.get('user_context', {})
             
-            # Enhanced understanding with leave-specific context
-            understanding = self._enhanced_leave_understanding(message, user_context)
-            
-            # Merge with existing entities
-            understanding['entities'].update(entities)
-            
-            # Route to appropriate handler
-            if understanding['intent'] == 'leave_request':
+            # Enhance entities based on the message, but do not change the intent
+            understanding = {
+                'intent': intent,
+                'entities': self._enhance_leave_entities(message, {}).get('entities', {})
+            }
+
+            print(f"🏖️ Leave Agent processing intent '{intent}' with entities: {understanding['entities']}")
+
+            # Route to the appropriate handler based on the pre-classified intent
+            if intent == 'leave_request':
                 return self._handle_leave_request(message, understanding, user_context)
-            elif understanding['intent'] == 'leave_status':
+            elif intent == 'leave_status':
                 return self._handle_leave_status(message, understanding, user_context)
-            elif understanding['intent'] == 'leave_history':
+            elif intent == 'leave_history':
                 return self._handle_leave_history(message, understanding, user_context)
-            elif understanding['intent'] == 'leave_approval' and user_context.get('role') == 'hr':
+            elif intent == 'leave_approval' and user_context.get('role') == 'hr':
                 return self._handle_leave_approval(message, understanding, user_context)
             else:
+                # Fallback to a general query if the intent is not recognized
                 return self._handle_general_leave_query(message, understanding, user_context)
                 
         except Exception as e:
@@ -319,13 +321,12 @@ Is there anything else I can help you with regarding your leave?"""
     def _handle_leave_approval(self, message: str, understanding: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
         """Handle leave approval requests (HR only)"""
         try:
-            # Execute tools to get pending approvals
-            tool_results = self.execute_with_tools({
-                'action': 'get_pending_approvals',
-                'user_context': user_context
-            }, ['get_pending_approvals'])
+            # This tool execution should fetch pending requests from the database
+            pending_requests = self.leave_model.get_pending_leaves()
             
-            # Generate response
+            tool_results = {'pending_requests': pending_requests}
+            
+            # Generate response using the fetched data
             response = self._generate_approval_response(tool_results)
             
             return self.format_success_response(response)
@@ -449,25 +450,39 @@ How can I assist you today?"""
         
         pending_requests = tool_results.get('pending_requests', [])
         
-        response = """🔍 **Pending Leave Requests**
+        if not pending_requests:
+            return "✅ Great news! There are no pending leave requests awaiting your approval at this time."
 
-**Awaiting Your Approval:**"""
+        response = f"""🔍 **Pending Leave Requests ({len(pending_requests)} Found)**
+
+Here are the leave requests awaiting your approval:"""
         
-        if pending_requests:
-            for request in pending_requests:
-                response += f"\n\n👤 **{request.get('employee_name', 'Unknown')}**"
-                response += f"\n📋 Type: {request.get('leave_type', 'N/A').title()}"
-                response += f"\n📅 Dates: {request.get('start_date')} to {request.get('end_date')}"
-                response += f"\n📝 Reason: {request.get('reason', 'Not provided')}"
-                response += f"\n🆔 Request ID: {request.get('request_id', 'N/A')}"
-                response += f"\n⏰ Submitted: {request.get('submitted_date', 'N/A')}"
-        else:
-            response += "\n✅ No pending leave requests at this time."
+        # We need to get user details to show names
+        user_ids = [req['user_id'] for req in pending_requests]
+        # In a real system, you'd have a more efficient way to get multiple users
+        users = {str(u['_id']): u for u in self.db_connection.get_collection('users').find({'_id': {'$in': user_ids}})}
         
-        response += "\n\n💡 **Management Actions:**\n"
-        response += "• 'Approve request [ID]' - Approve a leave request\n"
-        response += "• 'Reject request [ID]' - Reject with reason\n"
-        response += "• 'Team leave calendar' - View team schedule"
+        for request in pending_requests:
+            user_info = users.get(str(request.get('user_id')))
+            employee_name = user_info.get('full_name', 'Unknown Employee') if user_info else 'Unknown Employee'
+            
+            response += f"""
+
+- - - - - - - - - - - - - - - - -
+👤 **{employee_name}**
+  - **Type:** {request.get('leave_type', 'N/A').title()}
+  - **Dates:** {request.get('start_date').strftime('%Y-%m-%d')} to {request.get('end_date').strftime('%Y-%m-%d')}
+  - **Reason:** {request.get('reason', 'Not provided')}
+  - **Request ID:** `{str(request.get('_id'))}`
+"""
+        
+        response += """
+- - - - - - - - - - - - - - - - -
+
+💡 **Management Actions:**
+- To approve: `approve leave [Request ID]`
+- To reject: `reject leave [Request ID] because [reason]`
+"""
         
         return response
     

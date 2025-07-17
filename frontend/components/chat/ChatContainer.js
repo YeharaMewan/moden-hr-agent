@@ -148,69 +148,8 @@ export default function ChatContainer() {
     setError(null)
   }
 
-  const quickActions = [
-    {
-      label: isHR ? "Find Candidates" : "Request Leave",
-      action: isHR ? "Find Java developers" : "I need leave next week",
-      icon: isHR ? "👥" : "🏖️"
-    },
-    {
-      label: isHR ? "Pending Leaves" : "Leave Balance", 
-      action: isHR ? "Show pending leave requests" : "What's my leave balance?",
-      icon: isHR ? "📋" : "📊"
-    },
-    {
-      label: "Calculate Payroll",
-      action: isHR ? "Calculate IT department payroll" : "Calculate my payroll",
-      icon: "💰"
-    }
-  ]
-
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">HR AI Assistant</h1>
-            <p className="text-sm text-gray-500">
-              {isHR ? 'HR Dashboard' : 'Employee Portal'} • {user?.department || 'General'}
-            </p>
-          </div>
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={clearChat}
-              className="px-3 py-1 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
-            >
-              Clear Chat
-            </button>
-            <div className="h-8 w-8 bg-blue-600 rounded-full flex items-center justify-center">
-              <span className="text-white text-sm font-medium">
-                {user?.username?.charAt(0).toUpperCase() || 'U'}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      {messages.length <= 1 && (
-        <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex-shrink-0">
-          <h3 className="text-sm font-medium text-gray-700 mb-3">Quick Actions</h3>
-          <div className="flex flex-wrap gap-2">
-            {quickActions.map((action, index) => (
-              <button
-                key={index}
-                onClick={() => sendMessage(action.action)}
-                className="inline-flex items-center px-3 py-2 text-sm bg-white border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
-              >
-                <span className="mr-2">{action.icon}</span>
-                {action.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Messages Container */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">

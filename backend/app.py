@@ -1,4 +1,4 @@
-# backend/app.py (Updated for LangGraph Workflow)
+# backend/app.py - Final Fixed Version
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
@@ -9,201 +9,218 @@ from datetime import datetime
 # Load environment variables
 load_dotenv()
 
-# Import database and memory
-from config import get_database_connection
-from memory.short_term_memory import ShortTermMemory
-from memory.long_term_memory import LongTermMemory
-
-# Import agents
-from agents.router_agent import RouterAgent
-from agents.leave_agent import LeaveAgent
-from agents.ats_agent import ATSAgent
-from agents.payroll_agent import PayrollAgent
-
-# Import LangGraph workflow
-from agents.langgraph_router import LangGraphWorkflowManager
-
-# Import routes
-from routes.auth import auth_bp
-from routes.chat import chat_bp
-
-# Initialize Flask app
+# Initialize Flask app FIRST
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'hr-ai-secret-key-2024')
 
 # Enable CORS
-CORS(app, origins=['http://localhost:3000', 'http://127.0.0.1:3000'])
-
-# Initialize database connection
-print("🔌 Initializing database connection...")
-db_connection = get_database_connection()
-
-# Initialize memory systems
-print("🧠 Initializing memory systems...")
-short_term_memory = ShortTermMemory(db_connection)
-long_term_memory = LongTermMemory(db_connection)
-
-# Create memory manager
-class MemoryManager:
-    def __init__(self, short_term, long_term):
-        self.short_term = short_term
-        self.long_term = long_term
-    
-    def get_system_statistics(self):
-        return {
-            'short_term_memory': {
-                'total_contexts': self.short_term.get_total_contexts(),
-                'active_sessions': self.short_term.get_active_sessions()
-            },
-            'long_term_memory': {
-                'total_memories': self.long_term.get_total_memories(),
-                'learned_patterns': self.long_term.get_pattern_count()
-            },
-            'cache_size': 0  # Placeholder
-        }
-
-memory_manager = MemoryManager(short_term_memory, long_term_memory)
-
-# Initialize agents
-print("🤖 Initializing enhanced agents...")
-gemini_api_key = os.getenv('GEMINI_API_KEY')
-
-if not gemini_api_key:
-    print("❌ Error: GEMINI_API_KEY not found in environment variables")
-    exit(1)
-
-# Initialize individual agents
-router_agent = RouterAgent(gemini_api_key, db_connection, memory_manager)
-leave_agent = LeaveAgent(gemini_api_key, db_connection, memory_manager)
-ats_agent = ATSAgent(gemini_api_key, db_connection, memory_manager)
-payroll_agent = PayrollAgent(gemini_api_key, db_connection, memory_manager)
-
-# Initialize LangGraph workflow manager
-print("🔄 Initializing LangGraph workflow...")
-workflow_manager = LangGraphWorkflowManager(
-    router_agent=router_agent,
-    leave_agent=leave_agent,
-    ats_agent=ats_agent,
-    payroll_agent=payroll_agent
+CORS(app, 
+     origins=['http://localhost:3000', 'http://127.0.0.1:3000'],
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+     allow_headers=['Content-Type', 'Authorization'],
+     supports_credentials=True
 )
 
-# Register blueprints
-app.register_blueprint(auth_bp, url_prefix='/api/auth')
-app.register_blueprint(chat_bp, url_prefix='/api/chat')
+# Initialize global variables
+db_connection = None
+memory_manager = None
+router_agent = None
+leave_agent = None
+ats_agent = None
+payroll_agent = None
+workflow_manager = None
 
-# Make workflow manager available to routes
-app.workflow_manager = workflow_manager
-app.router_agent = router_agent
-app.leave_agent = leave_agent
-app.ats_agent = ats_agent
-app.payroll_agent = payroll_agent
-app.db_connection = db_connection
-app.memory_manager = memory_manager
-
-# Health check endpoint
+# Simple health check endpoint FIRST
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Enhanced health check with workflow status"""
+    """Simple health check"""
     try:
-        health_status = {
+        return jsonify({
             'status': 'healthy',
             'timestamp': datetime.now().isoformat(),
             'version': '2.0.0',
-            'features': {
-                'langgraph_workflow': True,
-                'intelligent_routing': True,
-                'tool_execution': True,
-                'human_in_loop': True,
-                'memory_system': True
-            },
-            'components': {}
+            'service': 'HR AI Backend'
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+# Database connection with proper error handling
+def initialize_database():
+    """Initialize database connection"""
+    global db_connection
+    
+    try:
+        print("🔌 Initializing database connection...")
+        from config import get_database_connection
+        db_connection = get_database_connection()
+        
+        if db_connection is not None:
+            print("✅ Database connection successful!")
+            return True
+        else:
+            print("❌ Database connection failed!")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Database initialization error: {e}")
+        db_connection = None
+        return False
+
+# Memory systems initialization
+def initialize_memory():
+    """Initialize memory systems"""
+    global memory_manager
+    
+    try:
+        if db_connection is None:
+            print("⚠️ Skipping memory initialization - no database connection")
+            return False
+            
+        print("🧠 Initializing memory systems...")
+        from memory.short_term_memory import ShortTermMemory
+        from memory.long_term_memory import LongTermMemory
+        
+        short_term_memory = ShortTermMemory(db_connection)
+        long_term_memory = LongTermMemory(db_connection)
+        
+        # Create memory manager
+        class MemoryManager:
+            def __init__(self, short_term, long_term):
+                self.short_term = short_term
+                self.long_term = long_term
+            
+            def get_system_statistics(self):
+                try:
+                    return {
+                        'short_term_memory': {
+                            'total_contexts': getattr(self.short_term, 'get_total_contexts', lambda: 0)(),
+                            'active_sessions': getattr(self.short_term, 'get_active_sessions', lambda: 0)()
+                        },
+                        'long_term_memory': {
+                            'total_memories': getattr(self.long_term, 'get_total_memories', lambda: 0)(),
+                            'learned_patterns': getattr(self.long_term, 'get_pattern_count', lambda: 0)()
+                        }
+                    }
+                except Exception as e:
+                    return {'error': f'Memory stats unavailable: {str(e)}'}
+        
+        memory_manager = MemoryManager(short_term_memory, long_term_memory)
+        print("✅ Memory systems initialized!")
+        return True
+        
+    except Exception as e:
+        print(f"⚠️ Memory system warning: {e}")
+        memory_manager = None
+        return False
+
+# Agents initialization
+def initialize_agents():
+    """Initialize AI agents"""
+    global router_agent, leave_agent, ats_agent, payroll_agent
+    
+    try:
+        gemini_api_key = os.getenv('GEMINI_API_KEY')
+        
+        if not gemini_api_key:
+            print("⚠️ Warning: GEMINI_API_KEY not found - AI features will be limited")
+            return False
+            
+        if db_connection is None:
+            print("⚠️ Warning: No database connection - AI features will be limited")
+            return False
+            
+        print("🤖 Initializing agents...")
+        
+        from agents.router_agent import RouterAgent
+        from agents.leave_agent import LeaveAgent
+        from agents.ats_agent import ATSAgent
+        from agents.payroll_agent import PayrollAgent
+        
+        router_agent = RouterAgent(gemini_api_key, db_connection, memory_manager)
+        leave_agent = LeaveAgent(gemini_api_key, db_connection, memory_manager)
+        ats_agent = ATSAgent(gemini_api_key, db_connection, memory_manager)
+        payroll_agent = PayrollAgent(gemini_api_key, db_connection, memory_manager)
+        
+        print("✅ Agents initialized!")
+        return True
+        
+    except Exception as e:
+        print(f"⚠️ Agents initialization warning: {e}")
+        router_agent = None
+        leave_agent = None
+        ats_agent = None
+        payroll_agent = None
+        return False
+
+# Workflow manager initialization
+def initialize_workflow():
+    """Initialize workflow manager"""
+    global workflow_manager
+    
+    try:
+        if not all([router_agent, leave_agent, ats_agent, payroll_agent]):
+            print("⚠️ Warning: Not all agents available - workflow features will be limited")
+            return False
+            
+        print("🔄 Initializing LangGraph workflow...")
+        from agents.langgraph_router import LangGraphWorkflowManager
+        
+        workflow_manager = LangGraphWorkflowManager(
+            router_agent=router_agent,
+            leave_agent=leave_agent,
+            ats_agent=ats_agent,
+            payroll_agent=payroll_agent
+        )
+        print("✅ Workflow manager initialized!")
+        return True
+        
+    except Exception as e:
+        print(f"⚠️ Workflow manager warning: {e}")
+        workflow_manager = None
+        return False
+
+# Routes registration
+def register_routes():
+    """Register application routes"""
+    try:
+        from routes.auth import auth_bp
+        from routes.chat import chat_bp
+        
+        app.register_blueprint(auth_bp, url_prefix='/api/auth')
+        app.register_blueprint(chat_bp, url_prefix='/api/chat')
+        
+        print("✅ Routes registered!")
+        return True
+        
+    except Exception as e:
+        print(f"⚠️ Routes registration warning: {e}")
+        return False
+
+# Enhanced health check
+@app.route('/api/health/detailed', methods=['GET'])
+def detailed_health_check():
+    """Detailed health check with component status"""
+    try:
+        components = {
+            'database': 'healthy' if db_connection else 'unavailable',
+            'memory_manager': 'healthy' if memory_manager else 'unavailable',
+            'agents': 'healthy' if router_agent else 'unavailable',
+            'workflow_manager': 'healthy' if workflow_manager else 'unavailable'
         }
         
-        # Database health
-        try:
-            db_connection.admin.command('ping')
-            health_status['components']['database'] = {
-                'status': 'healthy',
-                'connection': 'active'
-            }
-        except Exception as e:
-            health_status['components']['database'] = {
-                'status': 'unhealthy',
-                'error': str(e)
-            }
-            health_status['status'] = 'degraded'
+        overall_status = 'healthy' if all(status == 'healthy' for status in components.values()) else 'degraded'
         
-        # Memory system health
-        try:
-            memory_stats = memory_manager.get_system_statistics()
-            health_status['components']['memory_system'] = {
-                'status': 'healthy',
-                'short_term_active': memory_stats.get('short_term_memory', {}).get('total_contexts', 0) >= 0,
-                'long_term_active': memory_stats.get('long_term_memory', {}).get('total_memories', 0) >= 0
-            }
-        except Exception as e:
-            health_status['components']['memory_system'] = {
-                'status': 'unhealthy',
-                'error': str(e)
-            }
-            health_status['status'] = 'degraded'
-        
-        # Workflow health
-        try:
-            # Test workflow with a simple message
-            test_result = workflow_manager.process_message(
-                "Hello", 
-                {'user_id': 'health_check', 'username': 'system', 'role': 'user'}
-            )
-            health_status['components']['workflow'] = {
-                'status': 'healthy',
-                'test_success': test_result.get('success', False)
-            }
-        except Exception as e:
-            health_status['components']['workflow'] = {
-                'status': 'unhealthy',
-                'error': str(e)
-            }
-            health_status['status'] = 'degraded'
-        
-        # Agent health
-        agent_health = {}
-        for agent_name, agent in [
-            ('router', router_agent), 
-            ('leave', leave_agent), 
-            ('ats', ats_agent), 
-            ('payroll', payroll_agent)
-        ]:
-            try:
-                agent_stats = agent.get_performance_stats()
-                agent_health[agent_name] = {
-                    'status': 'healthy',
-                    'requests_processed': agent_stats.get('total_requests', 0),
-                    'cache_hit_rate': agent_stats.get('cache_hit_rate', '0%')
-                }
-            except Exception as e:
-                agent_health[agent_name] = {
-                    'status': 'unhealthy',
-                    'error': str(e)
-                }
-                health_status['status'] = 'degraded'
-        
-        health_status['components']['agents'] = agent_health
-        
-        # System capabilities
-        health_status['capabilities'] = {
-            'leave_management': True,
-            'candidate_search': True,
-            'payroll_calculation': True,
-            'intelligent_routing': True,
-            'memory_learning': True,
-            'context_awareness': True,
-            'multi_language_support': True,
-            'workflow_processing': True
-        }
-        
-        status_code = 200 if health_status['status'] == 'healthy' else 503
-        return jsonify(health_status), status_code
+        return jsonify({
+            'status': overall_status,
+            'timestamp': datetime.now().isoformat(),
+            'version': '2.0.0',
+            'components': components,
+            'message': 'System operational with available components'
+        }), 200
         
     except Exception as e:
         return jsonify({
@@ -215,27 +232,21 @@ def health_check():
 # System statistics endpoint
 @app.route('/api/system/stats', methods=['GET'])
 def system_stats():
-    """Get detailed system statistics"""
+    """Get system statistics"""
     try:
         stats = {
             'timestamp': datetime.now().isoformat(),
             'system_info': {
                 'version': '2.0.0',
-                'workflow_engine': 'LangGraph',
-                'ai_model': 'Gemini Pro'
+                'workflow_engine': 'LangGraph' if workflow_manager else 'Unavailable',
+                'ai_model': 'Gemini Pro' if router_agent else 'Unavailable'
             },
-            'memory_stats': memory_manager.get_system_statistics(),
-            'agent_performance': {
-                'router': router_agent.get_performance_stats(),
-                'leave': leave_agent.get_performance_stats(),
-                'ats': ats_agent.get_performance_stats(),
-                'payroll': payroll_agent.get_performance_stats()
-            },
-            'workflow_stats': {
-                'total_workflows_executed': 0,  # Would be tracked in real implementation
-                'average_workflow_time': '< 3 seconds',
-                'success_rate': '98.5%',
-                'most_common_intents': ['leave_request', 'payroll_calculation', 'leave_status']
+            'memory_stats': memory_manager.get_system_statistics() if memory_manager else {'status': 'unavailable'},
+            'component_status': {
+                'database': bool(db_connection),
+                'memory': bool(memory_manager),
+                'agents': bool(router_agent),
+                'workflow': bool(workflow_manager)
             }
         }
         
@@ -264,122 +275,66 @@ def internal_error(error):
         'timestamp': datetime.now().isoformat()
     }), 500
 
-@app.errorhandler(Exception)
-def handle_exception(e):
-    """Handle unexpected exceptions"""
-    print(f"Unexpected error: {str(e)}")
-    print(traceback.format_exc())
-    
-    return jsonify({
-        'error': 'System error',
-        'message': 'An unexpected system error occurred. Please try again.',
-        'timestamp': datetime.now().isoformat()
-    }), 500
-
-# System optimization endpoint
-@app.route('/api/system/optimize', methods=['POST'])
-def optimize_system():
-    """Optimize system performance"""
-    try:
-        # Optimize agents
-        router_agent.optimize_performance()
-        leave_agent.optimize_performance() if hasattr(leave_agent, 'optimize_performance') else None
-        ats_agent.optimize_performance() if hasattr(ats_agent, 'optimize_performance') else None
-        payroll_agent.optimize_performance() if hasattr(payroll_agent, 'optimize_performance') else None
-        
-        # Clean up memory
-        short_term_memory.cleanup_expired_contexts()
-        long_term_memory.cleanup_expired_memories()
-        
-        return jsonify({
-            'success': True,
-            'message': 'System optimization completed',
-            'timestamp': datetime.now().isoformat(),
-            'optimizations': [
-                'Agent cache cleaned',
-                'Memory systems optimized',
-                'Performance counters reset'
-            ]
-        }), 200
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 500
-
-# Workflow testing endpoint
-@app.route('/api/workflow/test', methods=['POST'])
-def test_workflow():
-    """Test workflow with sample message"""
-    try:
-        data = request.get_json()
-        test_message = data.get('message', 'Hello')
-        test_context = data.get('context', {
-            'user_id': 'test_user',
-            'username': 'test',
-            'role': 'user'
-        })
-        
-        # Process through workflow
-        result = workflow_manager.process_message(test_message, test_context)
-        
-        return jsonify({
-            'success': True,
-            'workflow_result': result,
-            'test_message': test_message,
-            'timestamp': datetime.now().isoformat()
-        }), 200
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 500
-
-# Initialize system on startup
+# System initialization
 def initialize_system():
-    """Initialize enhanced system components"""
+    """Initialize all system components"""
     print("🚀 Initializing Enhanced HR AI System...")
+    print("=" * 60)
     
-    # Perform initial optimizations
-    try:
-        router_agent.optimize_performance()
-        print("✅ Router agent optimized")
-        
-        # Initial memory cleanup
-        short_term_memory.cleanup_expired_contexts()
-        long_term_memory.cleanup_expired_memories()
-        print("✅ Memory systems optimized")
-        
-        print("🎉 Enhanced HR AI System initialized successfully!")
-        
-    except Exception as e:
-        print(f"⚠️ Initialization warning: {e}")
+    # Initialize components step by step
+    components_status = {
+        'database': initialize_database(),
+        'memory': initialize_memory(),
+        'agents': initialize_agents(),
+        'workflow': initialize_workflow(),
+        'routes': register_routes()
+    }
+    
+    # Make components available to routes
+    app.db_connection = db_connection
+    app.memory_manager = memory_manager
+    app.router_agent = router_agent
+    app.leave_agent = leave_agent
+    app.ats_agent = ats_agent
+    app.payroll_agent = payroll_agent
+    app.workflow_manager = workflow_manager
+    
+    print("=" * 60)
+    print("✨ Component Status:")
+    for component, status in components_status.items():
+        print(f"  • {component.title()}: {'✅' if status else '❌'}")
+    
+    print("=" * 60)
+    print("🔗 Available API Endpoints:")
+    print("  • /api/health - Simple health check")
+    print("  • /api/health/detailed - Detailed component status")
+    print("  • /api/system/stats - System statistics")
+    print("  • /api/auth/login - User authentication")
+    if workflow_manager:
+        print("  • /api/chat/message - AI chat interface")
+    print("=" * 60)
+    
+    # Check if core functionality is available
+    core_available = components_status['database'] and components_status['routes']
+    
+    if core_available:
+        print("🎉 Core system initialized successfully!")
+        if not all(components_status.values()):
+            print("⚠️ Some AI features may be limited due to component issues")
+    else:
+        print("❌ Core system initialization failed!")
+        print("💡 Check database connection and routes configuration")
+    
+    return core_available
 
 if __name__ == '__main__':
-    print("🚀 Starting Enhanced HR Agentic AI System...")
-    print("=" * 60)
-    print("✨ Features:")
-    print("  • True Agentic Behavior with LangGraph workflows")
-    print("  • Intelligent Intent Classification & Routing")
-    print("  • Tool Execution with Human-in-the-Loop")
-    print("  • Enhanced Memory Management with learning")
-    print("  • Multi-language support (English/Sinhala)")
-    print("  • Advanced RAG for candidate search")
-    print("  • Performance optimization with caching")
-    print("  • Real-time workflow processing")
-    print("=" * 60)
-    print("🔗 API Endpoints:")
-    print("  • /api/health - System health check")
-    print("  • /api/chat/message - Main chat interface")
-    print("  • /api/system/stats - System statistics")
-    print("  • /api/workflow/test - Test workflow")
-    print("=" * 60)
+    # Initialize system
+    system_ready = initialize_system()
     
-    # Initialize the system before running the app
-    initialize_system()
-
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    if system_ready:
+        print("\n🌟 Starting Flask application...")
+        app.run(debug=True, host='0.0.0.0', port=5000)
+    else:
+        print("\n💥 System initialization failed - cannot start application")
+        print("🔧 Please check the error messages above and fix the issues")
+        exit(1)

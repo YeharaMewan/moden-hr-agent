@@ -1,6 +1,7 @@
 # backend/agents/payroll_agent.py (Enhanced for LangGraph)
 from agents.base_agent import BaseAgent
 from models.payroll import Payroll
+from models.user import User
 from typing import Dict, Any, List, Optional
 import json
 import re
@@ -15,6 +16,7 @@ class PayrollAgent(BaseAgent):
     def __init__(self, gemini_api_key: str, db_connection, memory_manager):
         super().__init__(gemini_api_key, db_connection, memory_manager)
         self.payroll_model = Payroll(db_connection)
+        self.user_model = User(db_connection)
         
         # Payroll-specific prompt templates
         self.prompt_templates.update({
@@ -95,32 +97,39 @@ class PayrollAgent(BaseAgent):
     
     def process_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Enhanced payroll request processing
+        Enhanced payroll request processing with intelligent dispatching based on entities.
         """
         try:
-            # Extract request components
-            intent = request_data.get('intent')
             message = request_data.get('message')
-            entities = request_data.get('entities', {})
             user_context = request_data.get('user_context', {})
-            
-            # Enhanced understanding with payroll-specific context
+
+            # Step 1: Enhanced understanding to get intent and all possible entities
             understanding = self._enhanced_payroll_understanding(message, user_context)
             
-            # Merge with existing entities
-            understanding['entities'].update(entities)
-            
-            # Route to appropriate handler
-            if understanding['intent'] == 'individual_payroll':
+            # Step 2: Intelligent Routing based on extracted entities
+            entities = understanding.get('entities', {})
+
+            # --- CORRECTED ROUTING LOGIC ---
+            # PRIORITY 1: Route to Individual Payroll if a specific employee was found (by name, ID, or self-request)
+            if entities.get('employee_name') or entities.get('is_self_request'):
+                print(f"✅ Routing to Individual Payroll for: {entities.get('employee_name', user_context.get('username'))}")
                 return self._handle_individual_payroll(message, understanding, user_context)
-            elif understanding['intent'] == 'department_payroll':
+
+            # PRIORITY 2: Route to Department Payroll if a department is mentioned and no specific employee was found
+            if entities.get('department'):
+                print(f"✅ Routing to Department Payroll for: {entities.get('department')}")
                 return self._handle_department_payroll(message, understanding, user_context)
-            elif understanding['intent'] == 'payroll_history':
+            
+            # PRIORITY 3: Handle other intents like history or summary
+            if understanding['intent'] == 'payroll_history':
                 return self._handle_payroll_history(message, understanding, user_context)
-            elif understanding['intent'] == 'payroll_summary':
-                return self._handle_payroll_summary(message, understanding, user_context)
-            else:
-                return self._handle_general_payroll_query(message, understanding, user_context)
+            
+            if understanding['intent'] == 'payroll_summary':
+                 return self._handle_payroll_summary(message, understanding, user_context)
+
+            # Fallback to general query if no specific entities are found for a calculation request
+            print("✅ No specific entities found, routing to General Payroll Query.")
+            return self._handle_general_payroll_query(message, understanding, user_context)
                 
         except Exception as e:
             return self.format_error_response(f"Error processing payroll request: {str(e)}")
@@ -148,50 +157,68 @@ class PayrollAgent(BaseAgent):
     
     def _enhance_payroll_entities(self, message: str, understanding: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Enhance understanding with payroll-specific entity extraction
+        Enhance understanding with payroll-specific entity extraction,
+        including robust detection of employee names, usernames, and employee IDs.
         """
         message_lower = message.lower()
         entities = understanding.get('entities', {})
-        
-        # Check if it's a self-request
-        if any(word in message_lower for word in ['my', 'මගේ', 'own', 'myself']):
+
+        # --- 1. Check for self-request first ---
+        if any(word in message_lower for word in ['my', 'මගේ', 'මගෙ']):
             entities['is_self_request'] = True
-            entities['employee_name'] = user_context.get('username', '')
+            entities['employee_name'] = user_context.get('username')
         
-        # Extract employee names
-        if not entities.get('employee_name') and ' for ' in message_lower:
-            parts = message_lower.split(' for ')
-            if len(parts) > 1:
-                name_part = parts[1].strip().split()[0]
-                entities['employee_name'] = name_part
-        
-        # Extract department
-        departments = ['it', 'hr', 'finance', 'marketing', 'sales', 'operations', 'engineering']
-        for dept in departments:
-            if dept in message_lower:
-                entities['department'] = dept
-                understanding['intent'] = 'department_payroll'
-                break
-        
-        # Extract time period
-        if 'monthly' in message_lower:
-            entities['period'] = 'monthly'
-        elif 'yearly' in message_lower or 'annual' in message_lower:
-            entities['period'] = 'yearly'
-        elif 'weekly' in message_lower:
-            entities['period'] = 'weekly'
-        
-        # Extract specific year/month
-        year_match = re.search(r'20\d{2}', message)
-        if year_match:
-            entities['year'] = int(year_match.group())
-        
-        month_names = ['january', 'february', 'march', 'april', 'may', 'june',
-                       'july', 'august', 'september', 'october', 'november', 'december']
-        for i, month in enumerate(month_names):
-            if month in message_lower:
-                entities['month'] = i + 1
-                break
+        # --- 2. Extract employee identifiers (Name, Username, or Employee ID) ---
+        if not entities.get('employee_name'):
+            # Pattern for Employee ID (e.g., MKT001, FIN002, IT001)
+            emp_id_match = re.search(r'([A-Z]{2,3}\d{3})', message, re.IGNORECASE)
+            # Pattern for username (e.g., david.lee)
+            username_match = re.search(r'([a-z]+\.[a-z]+)', message_lower)
+            # Pattern for full name (e.g., Kevin Johnson, Lisa Garcia, Sandun Silva)
+            fullname_match = re.search(r'([A-Z][a-z]+\s[A-Z][a-z]+)', message, re.IGNORECASE)
+
+            target_user = None
+            if emp_id_match:
+                employee_id = emp_id_match.group(1).upper()
+                target_user = self.user_model.get_user_by_employee_id(employee_id)
+                if target_user:
+                    print(f"DEBUG: Found user by Employee ID: {employee_id}")
+            elif fullname_match:
+                full_name = fullname_match.group(1)
+                # Convert "First Last" to "first.last" to find the user by username, which is a common pattern
+                username_to_find = full_name.lower().replace(' ', '.')
+                target_user = self.user_model.get_user_by_username(username_to_find)
+                if not target_user:
+                    # Fallback to searching by the full name field if username search fails
+                    users_by_name = self.user_model.get_all_users() # A more specific lookup would be better
+                    for u in users_by_name:
+                        if u.get('full_name', '').lower() == full_name.lower():
+                            target_user = u
+                            break
+                if target_user:
+                    print(f"DEBUG: Found user by Full Name: {full_name}")
+            elif username_match:
+                username = username_match.group(1)
+                target_user = self.user_model.get_user_by_username(username)
+                if target_user:
+                    print(f"DEBUG: Found user by Username: {username}")
+
+
+            if target_user:
+                entities['employee_name'] = target_user.get('username')
+                entities['is_self_request'] = (target_user.get('username') == user_context.get('username'))
+                # IMPORTANT: Set intent to individual payroll since we found a specific user
+                understanding['intent'] = 'individual_payroll'
+
+
+        # --- 3. Extract department (only if no specific user was found) ---
+        if not entities.get('employee_name'):
+            departments = ['it', 'hr', 'finance', 'marketing', 'sales', 'operations', 'engineering']
+            for dept in departments:
+                if re.search(r'\b' + dept + r'\b', message_lower):
+                    entities['department'] = dept.upper()
+                    understanding['intent'] = 'department_payroll'
+                    break
         
         understanding['entities'] = entities
         return understanding
@@ -216,7 +243,7 @@ class PayrollAgent(BaseAgent):
             # Execute tools to calculate payroll
             tool_results = self.execute_with_tools({
                 'action': 'calculate_individual_payroll',
-                'employee_name': target_employee,
+                'employee_name': target_employee, 'user_context': user_context,
                 'entities': entities,
                 'user_context': user_context
             }, ['calculate_individual_payroll', 'calculate_deductions', 'calculate_benefits'])
@@ -235,7 +262,7 @@ class PayrollAgent(BaseAgent):
     
     def _handle_department_payroll(self, message: str, understanding: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Handle department payroll calculation (HR only)
+        Handle department payroll calculation directly without an approval step.
         """
         try:
             user_role = user_context.get('role', 'user')
@@ -245,9 +272,12 @@ class PayrollAgent(BaseAgent):
                 return self.format_error_response("❌ Access Denied: Department payroll access is restricted to HR users.")
             
             entities = understanding.get('entities', {})
-            department = entities.get('department', 'unknown')
-            
-            # Execute tools to calculate department payroll
+            department = entities.get('department') # .get() is safer
+
+            if not department:
+                return self.format_error_response("❌ Please specify a department to calculate the payroll for.")
+
+            # Execute tools to calculate department payroll and get summary
             tool_results = self.execute_with_tools({
                 'action': 'calculate_department_payroll',
                 'department': department,
@@ -256,14 +286,17 @@ class PayrollAgent(BaseAgent):
             }, ['calculate_department_payroll', 'get_payroll_summary'])
             
             if tool_results.get('execution_success'):
+                # Generate the response with the calculated data
                 response = self._generate_department_payroll_response(tool_results, department)
-                return self.format_success_response(response)
+                # No human approval needed, so requires_action is False
+                return self.format_success_response(response, requires_action=False)
             else:
                 error_msg = tool_results.get('error', 'Failed to calculate department payroll')
                 return self.format_error_response(f"❌ Unable to calculate department payroll: {error_msg}")
                 
         except Exception as e:
             return self.format_error_response(f"Error calculating department payroll: {str(e)}")
+
     
     def _handle_payroll_history(self, message: str, understanding: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -476,11 +509,6 @@ How can I help you with your payroll today?"""
 • **Department Budget:** Rs. {dept_data.get('budget_utilization', 0):,.2f}
 • **Budget Utilization:** {dept_data.get('budget_percentage', 0):.1f}%
 
-**💼 Payroll Distribution:**
-• **Senior Level:** {dept_data.get('senior_count', 0)} employees
-• **Mid Level:** {dept_data.get('mid_count', 0)} employees
-• **Junior Level:** {dept_data.get('junior_count', 0)} employees
-
 **📅 Pay Period:** {dept_data.get('period', 'Monthly')}
 **🗓️ Calculation Date:** {datetime.now().strftime('%Y-%m-%d')}
 
@@ -591,7 +619,7 @@ How can I help you with your payroll today?"""
                 
                 # Tool 1: Calculate individual payroll
                 if 'calculate_individual_payroll' in available_tools:
-                    payroll_data = self._calculate_individual_payroll_data(employee_name, entities)
+                    payroll_data = self._calculate_individual_payroll_data(employee_name, entities,user_context)
                     tool_responses.append({'tool': 'calculate_individual_payroll', 'result': payroll_data})
                     result_data['payroll_data'] = payroll_data
                 
@@ -639,50 +667,53 @@ How can I help you with your payroll today?"""
         }
     
     # Tool implementation methods
-    def _calculate_individual_payroll_data(self, employee_name: str, entities: Dict[str, Any]) -> Dict[str, Any]:
+    def _calculate_individual_payroll_data(self, employee_name: str, entities: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Calculate individual payroll data
+        Calculate individual payroll data by fetching real data from the database.
         """
         try:
-            # This would typically query the database for employee data
-            # For now, return sample calculation
+            # Find the user from the database
+            target_user = self.user_model.get_user_by_username(employee_name)
+            if not target_user:
+                return {'error': f'Employee "{employee_name}" not found in the database.'}
+
+            basic_salary = target_user.get('salary', 0.0)
             
-            # Sample employee data
-            basic_salary = 80000.0  # This would come from database
-            
-            # Calculate allowances
+            # Calculate allowances (can be made dynamic later)
             allowances = {
                 'transport': self.ALLOWANCES['transport'],
                 'meal': self.ALLOWANCES['meal'],
                 'medical': self.ALLOWANCES['medical']
             }
             
-            # Calculate gross pay
-            gross_pay = basic_salary + sum(allowances.values())
+            total_allowances = sum(allowances.values())
+            gross_pay = basic_salary + total_allowances
             
             # Calculate deductions
             deductions = {
                 'income_tax': gross_pay * self.TAX_RATES['income_tax'],
-                'epf_employee': gross_pay * self.TAX_RATES['epf_employee'],
-                'etf': gross_pay * self.TAX_RATES['etf'],
-                'epf_employer': gross_pay * self.TAX_RATES['epf_employer']
+                'epf_employee': basic_salary * self.TAX_RATES['epf_employee'], # EPF is often on basic
+                'etf': basic_salary * self.TAX_RATES['etf'], # ETF is often on basic
+                'epf_employer': basic_salary * self.TAX_RATES['epf_employer']
             }
             
-            # Calculate net pay
-            net_pay = gross_pay - (deductions['income_tax'] + deductions['epf_employee'] + deductions['etf'])
+            total_deductions = deductions['income_tax'] + deductions['epf_employee']
+            
+            # Calculate net pay (Correction: ETF is not deducted from employee salary)
+            net_pay = gross_pay - total_deductions
             
             return {
                 'employee_name': employee_name,
-                'basic_salary': basic_salary,
+                'basic_salary': float(basic_salary),
                 'allowances': allowances,
-                'gross_pay': gross_pay,
-                'deductions': deductions,
-                'net_pay': net_pay,
+                'gross_pay': float(gross_pay),
+                'deductions': {k: float(v) for k, v in deductions.items()},
+                'net_pay': float(net_pay),
                 'period': 'Monthly',
                 'calculation_date': datetime.now().strftime('%Y-%m-%d'),
-                'employee_id': f"EMP_{employee_name.replace(' ', '_').upper()}",
-                'department': 'IT',
-                'position': 'Software Engineer',
+                'employee_id': target_user.get('employee_id', 'N/A'),
+                'department': target_user.get('department', 'N/A'),
+                'position': target_user.get('position', 'N/A'),
                 'tax_year': datetime.now().year,
                 'next_pay_date': 'End of month'
             }
@@ -692,32 +723,50 @@ How can I help you with your payroll today?"""
     
     def _calculate_department_payroll_data(self, department: str, entities: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Calculate department payroll data
+        Calculate department payroll data by fetching real user data.
         """
         try:
-            # Sample department data
-            employees = [
-                {'name': 'John Doe', 'gross_pay': 110000, 'net_pay': 85000, 'position': 'Senior Developer'},
-                {'name': 'Jane Smith', 'gross_pay': 95000, 'net_pay': 75000, 'position': 'Developer'},
-                {'name': 'Mike Wilson', 'gross_pay': 85000, 'net_pay': 68000, 'position': 'Junior Developer'},
-                {'name': 'Sarah Brown', 'gross_pay': 120000, 'net_pay': 92000, 'position': 'Tech Lead'}
-            ]
-            
-            total_gross = sum(emp['gross_pay'] for emp in employees)
-            total_net = sum(emp['net_pay'] for emp in employees)
-            
+            # Get all users in the specified department
+            department_users = self.user_model.get_all_users(role=None, department=department)
+
+            if not department_users:
+                return {'error': f'No employees found in {department} department.'}
+
+            employee_payroll_list = []
+            total_gross_pay = 0
+            total_net_pay = 0
+
+            for user in department_users:
+                # Reuse the individual calculation logic for each user
+                # We pass a minimal user_context needed for the calculation
+                individual_payroll = self._calculate_individual_payroll_data(user['username'], {}, {'user_id': user['_id']})
+                
+                if not individual_payroll.get('error'):
+                    employee_data = {
+                        'name': user.get('full_name', user['username']),
+                        'gross_pay': individual_payroll['gross_pay'],
+                        'net_pay': individual_payroll['net_pay'],
+                        'position': user.get('position', 'N/A')
+                    }
+                    employee_payroll_list.append(employee_data)
+                    total_gross_pay += individual_payroll['gross_pay']
+                    total_net_pay += individual_payroll['net_pay']
+
+            if not employee_payroll_list:
+                 return {'error': f'Could not process payroll for any employee in {department} department.'}
+
+            # Find highest paid employee based on net pay
+            highest_paid_employee = max(employee_payroll_list, key=lambda x: x['net_pay'])
+
             return {
                 'department': department,
-                'employees': employees,
-                'total_gross': total_gross,
-                'total_net': total_net,
-                'highest_paid': 'Sarah Brown',
-                'highest_salary': 120000,
-                'budget_utilization': total_gross,
-                'budget_percentage': 85.0,
-                'senior_count': 2,
-                'mid_count': 1,
-                'junior_count': 1,
+                'employees': employee_payroll_list,
+                'total_gross': total_gross_pay,
+                'total_net': total_net_pay,
+                'employee_count': len(employee_payroll_list),
+                'average_salary': total_net_pay / len(employee_payroll_list),
+                'highest_paid': highest_paid_employee['name'],
+                'highest_salary': highest_paid_employee['net_pay'],
                 'period': 'Monthly'
             }
             

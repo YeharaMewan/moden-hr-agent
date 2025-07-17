@@ -384,7 +384,7 @@ class BaseAgent(ABC):
                 }
             
             # Store interaction in memory
-            self._store_interaction_memory(user_context.get('user_id'), message, understanding)
+            self._store_interaction_memory(user_context, message, understanding)
             
             return understanding
             
@@ -419,11 +419,17 @@ class BaseAgent(ABC):
                 'context_available': False
             }
     
-    def _store_interaction_memory(self, user_id: str, message: str, understanding: Dict[str, Any]):
+    def _store_interaction_memory(self, user_context: Dict[str, Any], message: str, understanding: Dict[str, Any]):
         """
         Store interaction in memory for learning
         """
         try:
+            user_id = user_context.get('user_id')
+            session_id = user_context.get('session_id')
+
+            if not all([user_id, session_id, self.memory_manager]):
+                return
+
             # Store in short-term memory
             interaction_data = {
                 'message': message,
@@ -436,6 +442,7 @@ class BaseAgent(ABC):
             
             self.memory_manager.short_term.store_context(
                 user_id=user_id,
+                session_id=session_id,
                 context_data=interaction_data
             )
             

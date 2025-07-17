@@ -32,7 +32,7 @@ class Candidate:
     def search_candidates_by_skills(self, skills):
         """Search candidates by skills"""
         try:
-            query = {'skills': {'$in': skills}}
+            query = {'skills': {'$all': skills}}
             candidates = list(self.collection.find(query))
             for candidate in candidates:
                 candidate['_id'] = str(candidate['_id'])
@@ -61,6 +61,46 @@ class Candidate:
         except Exception as e:
             raise Exception(f"Error getting all candidates: {str(e)}")
     
+
+    def search_candidates_by_name(self, name: str):
+        """Search for candidates by name using a case-insensitive regex search."""
+        try:
+            # This query looks for the 'name' field containing the given name string, ignoring case
+            query = {'name': {'$regex': name, '$options': 'i'}}
+            candidates = list(self.collection.find(query))
+            for candidate in candidates:
+                candidate['_id'] = str(candidate['_id'])
+            return candidates
+        except Exception as e:
+            raise Exception(f"Error searching candidates by name: {str(e)}")
+
+
+    def search_candidates(self, criteria: dict):
+        """
+        Search candidates by multiple criteria like skills and position.
+        """
+        try:
+            query = {}
+            
+            # Build the query for skills using $all for AND logic
+            if criteria.get('skills'):
+                query['skills'] = {'$all': [skill.lower() for skill in criteria['skills']]}
+            
+            # Build the query for position using $regex for flexible matching
+            if criteria.get('position'):
+                query['position_applied'] = {'$regex': criteria['position'], '$options': 'i'}
+            
+            # If there's no criteria, return an empty list
+            if not query:
+                return []
+
+            candidates = list(self.collection.find(query))
+            for candidate in candidates:
+                candidate['_id'] = str(candidate['_id'])
+            return candidates
+        except Exception as e:
+            raise Exception(f"Error searching candidates with combined criteria: {str(e)}")
+
     def update_candidate_status(self, candidate_id, status):
         """Update candidate status"""
         try:

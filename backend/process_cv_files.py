@@ -220,11 +220,14 @@ class CVFileProcessor:
             # Extract skills using common programming terms
             common_skills = [
                 'java', 'python', 'javascript', 'typescript', 'c++', 'c#', 'php', 'ruby', 'go', 'rust',
-                'react', 'angular', 'vue', 'nodejs', 'express', 'django', 'flask', 'spring',
+                'react', 'angular', 'vue', 'nodejs', 'node.js', 'express', 'django', 'flask', 'spring',
                 'mysql', 'postgresql', 'mongodb', 'redis', 'elasticsearch', 'oracle',
-                'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'git', 'terraform',
+                'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'git', 'terraform', 'ansible',
                 'html', 'css', 'bootstrap', 'sass', 'less', 'webpack',
-                'machine learning', 'data science', 'artificial intelligence', 'tensorflow', 'pytorch'
+                'machine learning', 'data science', 'artificial intelligence', 'tensorflow', 'pytorch',
+                'devops', 'flutter', 'dart', 'kotlin', 'swift', 'xcode', 'android', 
+                'ui/ux', 'ui', 'ux', 'figma', 'sketch', 'adobe xd', 
+                'selenium', 'cypress', 'postman', 'qa' 
             ]
             
             found_skills = []

@@ -58,9 +58,6 @@ export default function LoginForm() {
           </div>
           <h2 className="text-3xl font-bold text-gray-900">HR AI Assistant</h2>
           <p className="mt-2 text-gray-600">Sign in to your account</p>
-          <div className="mt-2 text-sm text-gray-500">
-            Powered by Next.js + Tailwind CSS v4
-          </div>
         </div>
 
         {/* Login Form */}
@@ -189,13 +186,6 @@ export default function LoginForm() {
           <p className="text-sm text-gray-500">
             HR AI Assistant - Your Intelligent HR Companion
           </p>
-          <div className="mt-2 flex justify-center space-x-4 text-xs text-gray-400">
-            <span>Next.js 15</span>
-            <span>•</span>
-            <span>Tailwind CSS v4</span>
-            <span>•</span>
-            <span>AI Powered</span>
-          </div>
         </div>
       </div>
     </div>
