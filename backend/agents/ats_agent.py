@@ -89,6 +89,11 @@ class ATSAgent(BaseAgent):
         Streamlined ATS request processing using combined entity extraction.
         """
         try:
+            user_context = request_data.get('user_context', {})
+            if user_context.get('role') != 'hr':
+                return self.format_error_response(
+                    "Access Denied: You do not have permission to search for candidates. This feature is restricted to HR personnel."
+                )
             intent = request_data.get('intent')
             message = request_data.get('message')
             user_context = request_data.get('user_context', {})

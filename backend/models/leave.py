@@ -9,6 +9,11 @@ class Leave:
     def create_leave_request(self, leave_data):
         """Create a new leave request"""
         try:
+
+            if 'user_id' in leave_data and isinstance(leave_data['user_id'], str):
+                leave_data['user_id'] = ObjectId(leave_data['user_id'])
+            
+            
             leave_data['applied_date'] = datetime.now()
             leave_data['status'] = 'pending'
             leave_data['created_at'] = datetime.now()

@@ -1,21 +1,36 @@
 # backend/agents/leave_agent.py (Enhanced for LangGraph)
 from agents.base_agent import BaseAgent
 from models.leave import Leave
+from models.user import User  # Import User model
 from typing import Dict, Any, List, Optional
 import json
 import re
 from datetime import datetime, timedelta
 from dateutil.parser import parse
+from dateutil.relativedelta import relativedelta, MO
+
+
 
 class LeaveAgent(BaseAgent):
     """
     Enhanced Leave Agent with intelligent leave management and tool integration
     """
-    
+    @staticmethod
+    def calculate_working_days(start_date: datetime, end_date: datetime) -> int:
+        days = (end_date - start_date).days + 1
+        working_days = 0
+        for i in range(days):
+            day = start_date + timedelta(days=i)
+            if day.weekday() < 5:  # Monday to Friday
+                working_days += 1
+        return working_days
+
     def __init__(self, gemini_api_key: str, db_connection, memory_manager):
         super().__init__(gemini_api_key, db_connection, memory_manager)
         self.leave_model = Leave(db_connection)
-        
+        self.user_model = User(db_connection) # Initialize User model
+
+        # ... (prompt_templates and available_tools remain the same)
         # Leave-specific prompt templates
         self.prompt_templates.update({
             'leave_understanding': """
@@ -94,34 +109,50 @@ class LeaveAgent(BaseAgent):
         Streamlined leave request processing that trusts the incoming intent.
         """
         try:
-            # Trust the intent classified by the RouterAgent
             intent = request_data.get('intent')
             message = request_data.get('message')
             user_context = request_data.get('user_context', {})
             
-            # Enhance entities based on the message, but do not change the intent
-            understanding = {
-                'intent': intent,
-                'entities': self._enhance_leave_entities(message, {}).get('entities', {})
-            }
+            # Use a simplified understanding here as router does the heavy lifting
+            understanding = self._enhanced_leave_understanding(message, user_context)
+            print(f"🏖️ Leave Agent processing intent '{intent}'")
 
-            print(f"🏖️ Leave Agent processing intent '{intent}' with entities: {understanding['entities']}")
 
-            # Route to the appropriate handler based on the pre-classified intent
             if intent == 'leave_request':
                 return self._handle_leave_request(message, understanding, user_context)
             elif intent == 'leave_status':
                 return self._handle_leave_status(message, understanding, user_context)
             elif intent == 'leave_history':
                 return self._handle_leave_history(message, understanding, user_context)
-            elif intent == 'leave_approval' and user_context.get('role') == 'hr':
+            elif intent.startswith('leave_approval') and user_context.get('role') == 'hr':
                 return self._handle_leave_approval(message, understanding, user_context)
             else:
-                # Fallback to a general query if the intent is not recognized
+                # Fallback for any other leave-related queries
                 return self._handle_general_leave_query(message, understanding, user_context)
                 
         except Exception as e:
             return self.format_error_response(f"Error processing leave request: {str(e)}")
+        
+    def _handle_leave_status(self, message: str, understanding: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle leave status/balance requests."""
+        try:
+            user_id = user_context.get('user_id')
+            username = user_context.get('username', 'User')
+
+            tool_results = self.execute_with_tools({
+                'action': 'get_leave_status',
+                'user_context': user_context
+            }, ['check_leave_balance', 'get_leave_history'])
+
+            if tool_results.get('execution_success'):
+                response = self._generate_leave_status_response(tool_results, username)
+                return self.format_success_response(response)
+            else:
+                error_msg = tool_results.get('error', 'Failed to retrieve leave status')
+                return self.format_error_response(f"❌ Unable to retrieve leave status: {error_msg}")
+
+        except Exception as e:
+            return self.format_error_response(f"Error handling leave status request: {str(e)}")
     
     def _enhanced_leave_understanding(self, message: str, user_context: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -132,7 +163,9 @@ class LeaveAgent(BaseAgent):
             base_understanding = self.understand_request(message, user_context)
             
             # Enhance with leave-specific logic
-            enhanced_understanding = self._enhance_leave_entities(message, base_understanding)
+            leave_specific_entities = self._enhance_leave_entities(message).get('entities', {})
+            base_understanding.get('entities', {}).update(leave_specific_entities)
+            enhanced_understanding = base_understanding
             
             return enhanced_understanding
             
@@ -144,106 +177,117 @@ class LeaveAgent(BaseAgent):
                 'error': str(e)
             }
     
-    def _enhance_leave_entities(self, message: str, understanding: Dict[str, Any]) -> Dict[str, Any]:
+    def _enhance_leave_entities(self, message: str) -> Dict[str, Any]:
         """
-        Enhance understanding with leave-specific entity extraction
+        Enhance understanding with leave-specific entity extraction, including relative dates.
         """
         message_lower = message.lower()
-        entities = understanding.get('entities', {})
+        entities = {}
         
-        # Extract leave type
-        if not entities.get('leave_type'):
-            if any(word in message_lower for word in ['sick', 'medical', 'hospital', 'doctor']):
-                entities['leave_type'] = 'sick'
-            elif any(word in message_lower for word in ['annual', 'vacation', 'holiday']):
-                entities['leave_type'] = 'annual'
-            elif any(word in message_lower for word in ['casual', 'personal']):
-                entities['leave_type'] = 'casual'
-            elif any(word in message_lower for word in ['maternity', 'pregnancy']):
-                entities['leave_type'] = 'maternity'
-            elif any(word in message_lower for word in ['paternity', 'father']):
-                entities['leave_type'] = 'paternity'
-            elif any(word in message_lower for word in ['emergency', 'urgent']):
-                entities['leave_type'] = 'emergency'
+        # --- 1. Extract Leave Type ---
+        leave_types = {
+            'sick': ['sick', 'medical', 'hospital', 'doctor'],
+            'annual': ['annual', 'vacation', 'holiday'],
+            'casual': ['casual', 'personal'],
+        }
+        for leave_type, keywords in leave_types.items():
+            if any(word in message_lower for word in keywords):
+                entities['leave_type'] = leave_type
+                break
+
+        # --- 2. Extract Duration ---
+        duration_match = re.search(r'(\d+)\s*(day|week)s?', message_lower)
+        if duration_match:
+            value = int(duration_match.group(1))
+            unit = duration_match.group(2)
+            entities['duration'] = value * 7 if 'week' in unit else value
+
+        # --- 3. Extract and Parse Dates (including relative dates) ---
+        today = datetime.now()
         
-        # Extract dates
-        if not entities.get('start_date'):
-            date_patterns = [
-                r'(\d{4}-\d{2}-\d{2})',  # YYYY-MM-DD
-                r'(\d{1,2}/\d{1,2}/\d{4})',  # MM/DD/YYYY
-                r'(\d{1,2}-\d{1,2}-\d{4})',  # MM-DD-YYYY
-            ]
-            
-            for pattern in date_patterns:
-                matches = re.findall(pattern, message)
-                if matches:
-                    try:
-                        entities['start_date'] = parse(matches[0]).strftime('%Y-%m-%d')
-                        if len(matches) > 1:
-                            entities['end_date'] = parse(matches[1]).strftime('%Y-%m-%d')
-                    except:
-                        pass
+        # Relative dates like "next Monday"
+        if 'next monday' in message_lower:
+            entities['start_date'] = (today + relativedelta(weekday=MO(+1))).strftime('%Y-%m-%d')
+        elif 'tomorrow' in message_lower:
+            entities['start_date'] = (today + timedelta(days=1)).strftime('%Y-%m-%d')
+        elif 'today' in message_lower:
+            entities['start_date'] = today.strftime('%Y-%m-%d')
         
-        # Extract duration
-        if not entities.get('duration'):
-            duration_patterns = [
-                r'(\d+)\s*days?',
-                r'(\d+)\s*weeks?',
-                r'for\s*(\d+)',
-            ]
-            
-            for pattern in duration_patterns:
-                match = re.search(pattern, message_lower)
-                if match:
-                    if 'week' in pattern:
-                        entities['duration'] = int(match.group(1)) * 7
-                    else:
-                        entities['duration'] = int(match.group(1))
-                    break
-        
-        # Extract urgency
-        if not entities.get('urgency'):
-            if any(word in message_lower for word in ['urgent', 'emergency', 'immediately', 'asap']):
-                entities['urgency'] = 'high'
-            elif any(word in message_lower for word in ['soon', 'next week', 'tomorrow']):
-                entities['urgency'] = 'medium'
-            else:
-                entities['urgency'] = 'low'
-        
-        understanding['entities'] = entities
-        return understanding
+        # Explicit dates like "from January 15 to 19"
+        try:
+            # Attempt to parse specific dates if found
+            date_matches = re.findall(r'(?:from|on|between)\s*([a-zA-Z]+\s*\d{1,2})', message_lower)
+            if date_matches:
+                 # This is a simplified logic, a real implementation would be more robust
+                 start_date_str = date_matches[0]
+                 entities['start_date'] = parse(start_date_str).strftime('%Y-%m-%d')
+        except Exception:
+            pass # Ignore parsing errors for now
+
+        # --- 4. Calculate End Date if Start Date and Duration are present ---
+        if 'start_date' in entities and 'duration' in entities and 'end_date' not in entities:
+            start_date = datetime.strptime(entities['start_date'], '%Y-%m-%d')
+            # Duration includes the start day, so we subtract 1
+            end_date = start_date + timedelta(days=entities['duration'] - 1)
+            entities['end_date'] = end_date.strftime('%Y-%m-%d')
+
+        return {'entities': entities}
     
     def _handle_leave_request(self, message: str, understanding: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Handle leave request with intelligent form processing
+        Handle leave request with intelligent form processing and short-term memory.
         """
         try:
-            entities = understanding.get('entities', {})
-            username = user_context.get('username', 'User')
+            session_id = user_context.get('session_id')
             user_id = user_context.get('user_id')
+            username = user_context.get('username', 'User')
+
+            # 1. Check for pending form data in short-term memory
+            pending_form_data = self.memory_manager.short_term.get_form_data(user_id, session_id, 'leave_request')
             
-            # Check if we have enough information
+            # 2. Extract new entities from the current message
+            current_entities = self._enhance_leave_entities(message).get('entities', {})
+
+            # 3. Merge old and new entities
+            if pending_form_data:
+                print("🧠 Found pending leave form data in memory. Merging now...")
+                # Start with old entities and update with new ones
+                merged_entities = {**pending_form_data.get('entities', {}), **current_entities}
+            else:
+                merged_entities = current_entities
+
+            # 4. Check if all required information is now available
             required_fields = ['leave_type', 'start_date', 'end_date']
-            missing_fields = [field for field in required_fields if not entities.get(field)]
+            missing_fields = [field for field in required_fields if not merged_entities.get(field)]
             
             if missing_fields:
-                # Generate form guide
-                form_guide = self._generate_leave_form_guide(entities, missing_fields)
+                print(f"📝 Missing fields: {missing_fields}. Asking user for more info.")
+                # Store the current (merged) state in memory
+                self.memory_manager.short_term.store_form_data(
+                    user_id, session_id, 'leave_request', 
+                    {'entities': merged_entities, 'missing_fields': missing_fields}
+                )
+                
+                form_guide = self._generate_leave_form_guide(merged_entities, missing_fields)
                 return self.format_success_response(form_guide, requires_action=True, 
                                                   action_data={'type': 'form_completion', 'missing_fields': missing_fields})
             
-            # Execute tools to process leave request
+            # 5. If all info is present, process the request
+            print("✅ All required information is available. Processing leave request.")
+            # Clear memory since the form is now complete
+            self.memory_manager.short_term.clear_form_data(user_id, session_id, 'leave_request')
+            
             tool_results = self.execute_with_tools({
                 'action': 'create_leave_request',
-                'entities': entities,
+                'entities': merged_entities, # Use the merged data
                 'user_context': user_context
             }, ['validate_leave_dates', 'create_leave_request', 'check_leave_balance'])
             
+            # ... (The rest of the success/error response logic remains the same)
             if tool_results.get('execution_success'):
-                # Generate success response
-                leave_type = entities.get('leave_type', 'leave').title()
-                start_date = entities.get('start_date', 'TBD')
-                end_date = entities.get('end_date', 'TBD')
+                leave_type = merged_entities.get('leave_type', 'leave').title()
+                start_date = merged_entities.get('start_date', 'TBD')
+                end_date = merged_entities.get('end_date', 'TBD')
                 
                 response = f"""
 ✅ **Leave Request Submitted Successfully!**
@@ -253,237 +297,169 @@ class LeaveAgent(BaseAgent):
 📋 Type: {leave_type} Leave  
 📅 From: {start_date}
 📅 To: {end_date}
-📝 Reason: {entities.get('reason', 'Not specified')}
-
-**Next Steps:**
-🔄 Your request has been sent to your manager for approval
-📧 You'll receive an email notification once it's reviewed
-📱 You can check the status anytime by asking "What's my leave status?"
-
-**Request ID:** {tool_results.get('request_id', 'Generated')}
-
-Is there anything else I can help you with regarding your leave?"""
-
-                requires_approval = self.check_human_approval_needed({'intent': 'leave_request'}, tool_results)
-                
-                return self.format_success_response(
-                    response,
-                    requires_action=requires_approval,
-                    action_data={'request_id': tool_results.get('request_id'), 'type': 'leave_approval'}
-                )
+📝 Reason: {merged_entities.get('reason', 'Not specified')}
+"""
+                return self.format_success_response(response)
             else:
                 error_msg = tool_results.get('error', 'Failed to create leave request')
                 return self.format_error_response(f"❌ Unable to create leave request: {error_msg}")
                 
         except Exception as e:
             return self.format_error_response(f"Error creating leave request: {str(e)}")
-    
-    def _handle_leave_status(self, message: str, understanding: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle leave status inquiries"""
-        try:
-            user_id = user_context.get('user_id')
-            username = user_context.get('username', 'User')
-            
-            # Execute tools to get leave status
-            tool_results = self.execute_with_tools({
-                'action': 'get_leave_status',
-                'user_context': user_context
-            }, ['check_leave_balance', 'get_leave_history'])
-            
-            # Generate response using template
-            response = self._generate_leave_status_response(tool_results, username)
-            
-            return self.format_success_response(response)
-            
-        except Exception as e:
-            return self.format_error_response(f"Error getting leave status: {str(e)}")
-    
+
+
     def _handle_leave_history(self, message: str, understanding: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle leave history requests"""
+        """Handle leave history requests by fetching all leave records."""
         try:
             user_id = user_context.get('user_id')
             username = user_context.get('username', 'User')
             
-            # Execute tools to get leave history
+            # Execute tool to get the full leave history from the database
             tool_results = self.execute_with_tools({
                 'action': 'get_leave_history',
                 'user_context': user_context
             }, ['get_leave_history'])
             
-            # Generate response
             response = self._generate_leave_history_response(tool_results, username)
-            
             return self.format_success_response(response)
             
         except Exception as e:
             return self.format_error_response(f"Error getting leave history: {str(e)}")
     
+            
     def _handle_leave_approval(self, message: str, understanding: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle leave approval requests (HR only)"""
+        """
+        Handles leave approval requests. 
+        It can either list pending requests or approve/reject a specific one.
+        """
         try:
-            # This tool execution should fetch pending requests from the database
-            pending_requests = self.leave_model.get_pending_leaves()
-            
-            tool_results = {'pending_requests': pending_requests}
-            
-            # Generate response using the fetched data
-            response = self._generate_approval_response(tool_results)
-            
-            return self.format_success_response(response)
-            
+            # --- START of the FIX ---
+            # Step 1: Try to find a leave ID in the user's message
+            message_lower = message.lower()
+            # This regex looks for a 24-character hexadecimal string, which is the format of a MongoDB ID
+            leave_id_match = re.search(r'\b([a-f0-9]{24})\b', message_lower)
+
+            hr_user_id = user_context.get('user_id')
+
+            # Step 2: If an ID is found, attempt to approve or reject it
+            if leave_id_match:
+                leave_id = leave_id_match.group(1)
+
+                # Determine if the action is 'approve' or 'reject'
+                action = 'approved' if 'approve' in message_lower else 'rejected'
+
+                # Update the status in the database using the model
+                success = self.leave_model.update_leave_status(leave_id, action, hr_user_id)
+
+                if success:
+                    response_message = f"✅ **Success!**\nLeave request with ID `{leave_id}` has been successfully **{action}**."
+                else:
+                    response_message = f"⚠️ **Could not update.**\nCould not find a leave request with ID `{leave_id}`. Please check the ID and try again."
+
+                return self.format_success_response(response_message)
+
+            # Step 3: If no ID is found, list all pending requests (the original behavior)
+            else:
+                pending_requests = self.leave_model.get_pending_leaves()
+                response = self._generate_approval_response({'pending_requests': pending_requests})
+                return self.format_success_response(response)
+            # --- END of the FIX ---
+
         except Exception as e:
-            return self.format_error_response(f"Error getting pending approvals: {str(e)}")
+            # Return a detailed error message if something goes wrong
+            return self.format_error_response(f"An error occurred while handling leave approval: {str(e)}")
+
+
     
     def _handle_general_leave_query(self, message: str, understanding: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
         """Handle general leave queries"""
-        try:
-            username = user_context.get('username', 'User')
-            
-            response = f"""
-👋 Hi {username}! I'm here to help with your leave management needs.
-
-**What I can help you with:**
-🏖️ **Leave Requests:** "I need leave next week" or "Request annual leave from Jan 15-19"
-📊 **Leave Status:** "What's my leave balance?" or "Show my leave history"
-📋 **Leave Information:** "How many sick days do I have?" or "When was my last leave?"
-
-**Quick Commands:**
-• "I need leave next week" - Start a new leave request
-• "What's my leave balance?" - Check your current leave balance
-• "Show my leave history" - View your past leave records
-
-**Languages:** You can ask in English or Sinhala!
-
-How can I assist you today?"""
-            
-            return self.format_success_response(response)
-            
-        except Exception as e:
-            return self.format_error_response(f"Error handling general query: {str(e)}")
+        username = user_context.get('username', 'User')
+        response = f"👋 Hi {username}! I'm here to help with your leave management. You can ask me to 'request a leave', check your 'leave balance', or view your 'leave history'."
+        return self.format_success_response(response)
     
     def _generate_leave_form_guide(self, entities: Dict[str, Any], missing_fields: List[str]) -> str:
         """Generate conversational form guide for missing information"""
-        
-        username = entities.get('username', 'there')
-        
-        response = f"I'd be happy to help you with your leave request! I need a few more details:\n\n"
+        response = f"I'd be happy to help you with your leave request! I just need a few more details:\n"
         
         if 'leave_type' in missing_fields:
-            response += "📋 **Leave Type:** What type of leave do you need?\n"
-            response += "   • Annual leave (vacation)\n"
-            response += "   • Sick leave\n"
-            response += "   • Casual leave\n"
-            response += "   • Emergency leave\n\n"
-        
+            response += "\n📋 **What type of leave do you need?** (e.g., annual, sick)"
         if 'start_date' in missing_fields:
-            response += "📅 **Start Date:** When do you want your leave to begin?\n"
-            response += "   Example: 'January 15, 2024' or '2024-01-15'\n\n"
-        
+            response += "\n📅 **When do you want your leave to start?** (e.g., tomorrow, next Monday, 2024-10-25)"
         if 'end_date' in missing_fields:
-            response += "📅 **End Date:** When will you return to work?\n"
-            response += "   Example: 'January 19, 2024' or '2024-01-19'\n\n"
+            response += "\n📅 **And when will it end?** You can also tell me the duration (e.g., for 5 days)."
         
-        response += "💡 **Tip:** You can provide all information at once like:\n"
-        response += "\"I need annual leave from January 15 to January 19 for vacation\"\n\n"
-        response += "Please provide the missing information, and I'll process your request!"
-        
+        response += "\n\n💡 You can provide all the information at once, like: \"I need sick leave from tomorrow for 3 days\"."
         return response
     
     def _generate_leave_status_response(self, tool_results: Dict[str, Any], username: str) -> str:
-        """Generate leave status response"""
-        
+        """Generate leave status response with real balance and recent history."""
         leave_balance = tool_results.get('leave_balance', {})
         recent_history = tool_results.get('recent_history', [])
         
+        annual = leave_balance.get('annual', {})
+        sick = leave_balance.get('sick', {})
+        casual = leave_balance.get('casual', {})
+
         response = f"""📊 **Leave Status for {username}**
 
 **Current Leave Balance:**
-🏖️ Annual Leave: {leave_balance.get('annual', 21)} days
-🏥 Sick Leave: {leave_balance.get('sick', 7)} days  
-📝 Casual Leave: {leave_balance.get('casual', 7)} days
-🚨 Emergency Leave: {leave_balance.get('emergency', 3)} days
+🏖️ **Annual Leave:** {annual.get('remaining', 'N/A')} days remaining (out of {annual.get('total', 'N/A')})
+🏥 **Sick Leave:** {sick.get('remaining', 'N/A')} days remaining (out of {sick.get('total', 'N/A')})
+📝 **Casual Leave:** {casual.get('remaining', 'N/A')} days remaining (out of {casual.get('total', 'N/A')})
 
 **Recent Leave Activity:**"""
         
         if recent_history:
             for leave_record in recent_history[:3]:
                 status_emoji = "✅" if leave_record.get('status') == 'approved' else "⏳" if leave_record.get('status') == 'pending' else "❌"
-                response += f"\n{status_emoji} {leave_record.get('leave_type', 'Leave').title()}: {leave_record.get('start_date')} - {leave_record.get('end_date')} ({leave_record.get('status', 'Unknown')})"
+                start_date_str = leave_record.get('start_date').strftime('%b %d, %Y')
+                end_date_str = leave_record.get('end_date').strftime('%b %d, %Y')
+                response += f"\n{status_emoji} **{leave_record.get('leave_type', 'Leave').title()}**: {start_date_str} - {end_date_str} ({leave_record.get('status', 'Unknown')})"
         else:
             response += "\nNo recent leave activity found."
         
-        response += "\n\n💡 **Need help?** Ask me:\n"
-        response += "• 'Show my leave history' - Full leave history\n"
-        response += "• 'I need leave next week' - Request new leave\n"
-        response += "• 'When can I take leave?' - Check availability"
-        
+        response += "\n\n💡 To see all your past requests, ask 'Show my leave history'."
         return response
     
     def _generate_leave_history_response(self, tool_results: Dict[str, Any], username: str) -> str:
-        """Generate leave history response"""
-        
+        """Generate full leave history response from real data."""
         leave_history = tool_results.get('leave_history', [])
         
-        response = f"""📋 **Leave History for {username}**
-
-**Past 12 Months:**"""
+        response = f"""📋 **Full Leave History for {username}**"""
         
         if leave_history:
             for leave_record in leave_history:
                 status_emoji = "✅" if leave_record.get('status') == 'approved' else "⏳" if leave_record.get('status') == 'pending' else "❌"
-                duration = leave_record.get('duration', 'N/A')
-                response += f"\n{status_emoji} **{leave_record.get('leave_type', 'Leave').title()}** ({duration} days)"
-                response += f"\n   📅 {leave_record.get('start_date')} to {leave_record.get('end_date')}"
-                response += f"\n   📝 {leave_record.get('reason', 'No reason provided')}"
-                response += f"\n   🔄 Status: {leave_record.get('status', 'Unknown').title()}\n"
+                start_date_str = leave_record.get('start_date').strftime('%Y-%m-%d')
+                end_date_str = leave_record.get('end_date').strftime('%Y-%m-%d')
+                
+                response += f"\n\n{status_emoji} **{leave_record.get('leave_type', 'Leave').title()}**"
+                response += f"\n   - **Dates:** {start_date_str} to {end_date_str}"
+                response += f"\n   - **Status:** {leave_record.get('status', 'Unknown').title()}"
         else:
-            response += "\nNo leave history found for the past 12 months."
-        
-        response += "\n💡 **Quick Actions:**\n"
-        response += "• 'What's my leave balance?' - Check current balance\n"
-        response += "• 'I need leave next week' - Request new leave"
-        
+            response += "\n\nNo leave history found."
+            
         return response
     
     def _generate_approval_response(self, tool_results: Dict[str, Any]) -> str:
-        """Generate approval response for HR users"""
-        
         pending_requests = tool_results.get('pending_requests', [])
-        
         if not pending_requests:
             return "✅ Great news! There are no pending leave requests awaiting your approval at this time."
 
-        response = f"""🔍 **Pending Leave Requests ({len(pending_requests)} Found)**
-
-Here are the leave requests awaiting your approval:"""
+        response = f"🔍 **Pending Leave Requests ({len(pending_requests)} Found)**\nHere are the requests awaiting your approval:"
         
-        # We need to get user details to show names
-        user_ids = [req['user_id'] for req in pending_requests]
-        # In a real system, you'd have a more efficient way to get multiple users
-        users = {str(u['_id']): u for u in self.db_connection.get_collection('users').find({'_id': {'$in': user_ids}})}
-        
+        # In a real app, you'd fetch user details more efficiently
         for request in pending_requests:
-            user_info = users.get(str(request.get('user_id')))
-            employee_name = user_info.get('full_name', 'Unknown Employee') if user_info else 'Unknown Employee'
-            
+            user = self.user_model.get_user_by_id(request.get('user_id'))
+            employee_name = user.get('full_name') if user else 'Unknown Employee'
             response += f"""
-
-- - - - - - - - - - - - - - - - -
+\n-----------------------------------
 👤 **{employee_name}**
   - **Type:** {request.get('leave_type', 'N/A').title()}
   - **Dates:** {request.get('start_date').strftime('%Y-%m-%d')} to {request.get('end_date').strftime('%Y-%m-%d')}
-  - **Reason:** {request.get('reason', 'Not provided')}
-  - **Request ID:** `{str(request.get('_id'))}`
-"""
+  - **Request ID:** `{str(request.get('_id'))}`"""
         
-        response += """
-- - - - - - - - - - - - - - - - -
-
-💡 **Management Actions:**
-- To approve: `approve leave [Request ID]`
-- To reject: `reject leave [Request ID] because [reason]`
-"""
-        
+        response += "\n\n💡 To take action, you can say `approve leave [Request ID]` or `reject leave [Request ID] with reason [your reason]`."
         return response
     
     def execute_with_tools(self, request_data: Dict[str, Any], available_tools: List[str]) -> Dict[str, Any]:
@@ -587,11 +563,14 @@ Here are the leave requests awaiting your approval:"""
     def _create_leave_db_entry(self, entities: Dict[str, Any], user_context: Dict[str, Any]) -> Dict[str, Any]:
         """Create leave request in database"""
         try:
+            start_date_obj = datetime.strptime(entities.get('start_date'), '%Y-%m-%d')
+            end_date_obj = datetime.strptime(entities.get('end_date'), '%Y-%m-%d')
+
             leave_data = {
                 'user_id': user_context.get('user_id'),
                 'leave_type': entities.get('leave_type', 'annual'),
-                'start_date': entities.get('start_date'),
-                'end_date': entities.get('end_date'),
+                'start_date': start_date_obj,  # Save as datetime object
+                'end_date': end_date_obj,      # Save as datetime object
                 'reason': entities.get('reason', ''),
                 'status': 'pending',
                 'created_at': datetime.now(),
@@ -603,7 +582,7 @@ Here are the leave requests awaiting your approval:"""
             
             return {
                 'success': True,
-                'request_id': result.get('request_id'),
+                'request_id': result,
                 'message': 'Leave request created successfully'
             }
             
@@ -614,71 +593,73 @@ Here are the leave requests awaiting your approval:"""
             }
     
     def _get_user_leave_balance(self, user_id: str) -> Dict[str, Any]:
-        """Get user's leave balance"""
+        """Get user's leave balance from the database."""
         try:
-            # This would typically query the database
-            # For now, return sample data
-            return {
-                'annual': 21,
-                'sick': 7,
-                'casual': 7,
-                'emergency': 3,
-                'used_this_year': {
-                    'annual': 5,
-                    'sick': 2,
-                    'casual': 1,
-                    'emergency': 0
-                }
-            }
+            user = self.user_model.get_user_by_id(user_id)
+
+            if not user:
+                return {'error': 'User not found'}
+
             
-        except Exception as e:
-            return {'error': str(e)}
-    
-    def _get_user_leave_history(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get user's leave history"""
-        try:
-            # This would typically query the database
-            # For now, return sample data
-            return [
-                {
-                    'leave_type': 'annual',
-                    'start_date': '2024-01-15',
-                    'end_date': '2024-01-19',
-                    'duration': 5,
-                    'status': 'approved',
-                    'reason': 'Family vacation'
-                },
-                {
-                    'leave_type': 'sick',
-                    'start_date': '2024-01-10',
-                    'end_date': '2024-01-11',
-                    'duration': 2,
-                    'status': 'approved',
-                    'reason': 'Flu'
-                }
+            annual_balance = user.get('annual_leave_balance', 0)
+            sick_balance = user.get('sick_leave_balance', 0)
+            casual_balance = user.get('casual_leave_balance', 0)
+
+            all_leaves = self.leave_model.get_leaves_by_user(user_id)
+
+            deductible_leaves = [
+                leave for leave in all_leaves if leave.get('status') in ['pending', 'approved']
             ]
-            
+
+            # CORRECTED LOGIC: Separate 'approved' leaves to calculate 'used' days
+            approved_leaves = [leave for leave in all_leaves if leave.get('status') == 'approved']
+
+            # Calculate total taken days for each leave type
+            taken_annual = sum(self.calculate_working_days(l['start_date'], l['end_date']) 
+                               for l in deductible_leaves if l.get('leave_type') == 'annual')
+            taken_sick = sum(self.calculate_working_days(l['start_date'], l['end_date']) 
+                             for l in deductible_leaves if l.get('leave_type') == 'sick')
+            taken_casual = sum(self.calculate_working_days(l['start_date'], l['end_date']) 
+                               for l in deductible_leaves if l.get('leave_type') == 'casual')
+
+            # Calculate used days (approved only) for display purposes
+            approved_leaves = [l for l in deductible_leaves if l.get('status') == 'approved']
+            used_annual = sum(self.calculate_working_days(l['start_date'], l['end_date'])
+                              for l in approved_leaves if l.get('leave_type') == 'annual')
+            used_sick = sum(self.calculate_working_days(l['start_date'], l['end_date'])
+                            for l in approved_leaves if l.get('leave_type') == 'sick')
+            used_casual = sum(self.calculate_working_days(l['start_date'], l['end_date'])
+                              for l in approved_leaves if l.get('leave_type') == 'casual')
+
+            return {
+                'annual': {'total': annual_balance, 'used': used_annual, 'remaining': annual_balance - taken_annual},
+                'sick': {'total': sick_balance, 'used': used_sick, 'remaining': sick_balance - taken_sick},
+                'casual': {'total': casual_balance, 'used': used_casual, 'remaining': casual_balance - taken_casual}
+            }
+
         except Exception as e:
+            print(f"Error calculating leave balance from DB: {e}")
+            return {'error': str(e)}
+
+    
+    def _get_user_leave_history(self, user_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get user's leave history from the database."""
+        try:
+            history = self.leave_model.get_leaves_by_user(user_id)
+            return history[:limit] # Return limited number of records
+        except Exception as e:
+            print(f"Error fetching leave history from DB: {e}")
             return []
     
     def _get_pending_leave_requests(self) -> List[Dict[str, Any]]:
-        """Get pending leave requests for HR approval"""
+        """Get pending leave requests for HR approval from the database."""
         try:
-            # This would typically query the database
-            # For now, return sample data
-            return [
-                {
-                    'request_id': 'REQ001',
-                    'employee_name': 'John Doe',
-                    'leave_type': 'annual',
-                    'start_date': '2024-02-01',
-                    'end_date': '2024-02-05',
-                    'reason': 'Family vacation',
-                    'submitted_date': '2024-01-20'
-                }
-            ]
-            
+            # This now correctly fetches real data from the database
+            pending_leaves = self.leave_model.get_pending_leaves()
+            return pending_leaves
+
         except Exception as e:
+            print(f"Error fetching pending leave requests from DB: {e}")
             return []
     
     def _get_user_id_by_name(self, name: str) -> str:

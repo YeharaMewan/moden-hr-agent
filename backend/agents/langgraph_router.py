@@ -499,18 +499,16 @@ class LangGraphWorkflowManager:
         
         print(f"🎯 Routing intent '{intent}' to appropriate agent")
         
-        # Route ALL intents through appropriate agents
-        if intent in ["leave_request", "leave_status"]:
+        # Correctly route all leave-related intents to the leave_agent
+        if any(intent.startswith(keyword) for keyword in ["leave_request", "leave_status", "leave_history", "leave_approval"]):
             return "leave"
         elif intent == "candidate_search":
-            return "ats"
+            return "ats" 
         elif intent == "payroll_calculation":
             return "payroll"
-        elif intent in ["greeting", "help", "general", "error"]:
-            return "router"  # Router agent handles these through full workflow
-        else:
-            return "router"  # Default to router for unknown intents
-    
+        else: # Handles greeting, help, general, error, etc.
+            return "router"
+        
     def process_message(self, message: str, user_context: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
         """Main entry point for processing messages through the truly agentic workflow"""
         

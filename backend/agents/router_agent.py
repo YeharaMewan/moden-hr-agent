@@ -30,8 +30,12 @@ class RouterAgent:
             ],
             'leave_status': [
                 # Look for words indicating a query about status or balance
-                r'leave.*status', r'balance', r'remaining.*leave', r'leave.*history', r'sick days',
-                r'තත්වය', r'ශේෂය', r'ඉතිරි', r'ඉතිහාසය'
+                        r'leave.*status', r'balance', r'remaining.*leave', r'sick days',
+                r'තත්වය', r'ශේෂය', r'ඉතිරි'
+            ],
+            'leave_history': [
+                r'leave.*history', r'my past leaves', r'show.*history',
+                r'ඉතිහාසය'
             ],
             'leave_approval': [ 
                 r'approve', r'reject', r'pending.*leave', r'for approval',
@@ -42,7 +46,7 @@ class RouterAgent:
                 r'සොයන්න', r'අපේක්ෂක', r'සීවී'
             ],
             'payroll_calculation': [
-                r'payroll', r'salary', r'calculate.*pay', r'calculate.*salary', r'my salary',
+                r'payroll', r'salary', r'calculate.*pay', r'calculate.*salary', r'my salary',r'salary.*month',
                 r'වැටුප්', r'පඩි', r'ගනනය', r'ගණනය'
             ],
             'greeting': [
@@ -124,8 +128,9 @@ class RouterAgent:
                 "timestamp": datetime.now().isoformat()
             }
             
-            # STEP 6: Store routing decision with full context
-            self._store_enhanced_routing_memory(user_context.get('user_id'), message, routing_result)
+            # --- CORRECTED MEMORY STORAGE CALL ---
+            # Pass the entire user_context dictionary instead of just the user_id
+            self._store_enhanced_routing_memory(user_context, message, routing_result)
             
             return routing_result
             
@@ -186,7 +191,19 @@ class RouterAgent:
             """
             
             response = self.model.generate_content(context_prompt)
-            enhanced_data = json.loads(response.text)
+            
+            # --- ROBUST JSON PARSING ---
+            # Clean the response to better handle potential non-JSON text
+            json_text = response.text.strip()
+            if json_text.startswith("```json"):
+                json_text = json_text[7:]
+            if json_text.endswith("```"):
+                json_text = json_text[:-3]
+
+            if not json_text:
+                raise ValueError("Received an empty response from Gemini.")
+
+            enhanced_data = json.loads(json_text)
             
             # Apply confidence adjustment
             adjusted_confidence = min(1.0, max(0.0, 
@@ -202,7 +219,7 @@ class RouterAgent:
                 "confidence_adjustment": adjusted_confidence
             }
             
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError, Exception) as e: # Catch more errors
             print(f"⚠️ Context enhancement warning: {e}")
             return {
                 "intent": intent,
@@ -287,12 +304,16 @@ class RouterAgent:
             # Store in short-term memory
             self.memory_manager.short_term.store_context(user_id,session_id, memory_entry)
             
-            # Update long-term patterns
-            self.memory_manager.long_term.update_user_patterns(user_id, {
-                "interaction_count": 1,
-                "last_intent": routing_result['intent'],
-                "preferred_processing": "agentic"
-            })
+            # --- CORRECTED METHOD CALL ---
+            # Changed 'update_user_patterns' to 'store_interaction_pattern'
+            self.memory_manager.long_term.store_interaction_pattern(
+                user_id,
+                routing_result['intent'],
+                {
+                    'confidence': routing_result['confidence'],
+                    'entities_used': list(routing_result.get('entities', {}).keys())
+                }
+            )
             
         except Exception as e:
             print(f"⚠️ Memory storage warning: {e}")
@@ -369,6 +390,7 @@ class RouterAgent:
         agent_mapping = {
             'leave_request': 'leave_agent',
             'leave_status': 'leave_agent',
+            'leave_history': 'leave_agent', # Added mapping for history
             'candidate_search': 'ats_agent',
             'payroll_calculation': 'payroll_agent',
             'greeting': 'router_agent',  # Still goes through workflow

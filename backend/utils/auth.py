@@ -9,6 +9,16 @@ class AuthManager:
     def __init__(self, secret_key):
         self.secret_key = secret_key
     
+    def hr_required(f):
+        """Decorator to require HR role"""
+        @wraps(f)
+        def decorated(current_user, *args, **kwargs):
+            if current_user.get('role') != 'hr':
+                return jsonify({'error': 'HR access required'}), 403
+            return f(current_user, *args, **kwargs)
+        
+        return decorated
+
     def generate_token(self, user_data):
         """Generate JWT token for user"""
         try:

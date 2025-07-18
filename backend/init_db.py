@@ -99,6 +99,8 @@ def create_sample_users(user_model):
             'full_name': 'System Administrator',
             'phone': '+94771234567',
             'annual_leave_balance': 21,
+            'sick_leave_balance': 7,      # <-- අලුතින් එකතු කරන්න
+            'casual_leave_balance': 7,    # <-- අලුතින් එකතු කරන්න
             'position': 'HR Director',
             'salary': 300000,
             'join_date': datetime(2020, 1, 15)
@@ -113,6 +115,8 @@ def create_sample_users(user_model):
             'full_name': 'Priya Perera',
             'phone': '+94771234568',
             'annual_leave_balance': 21,
+            'sick_leave_balance': 7,      # <-- අලුතින් එකතු කරන්න
+            'casual_leave_balance': 7,    # <-- අලුතින් එකතු කරන්න
             'position': 'HR Manager',
             'salary': 180000,
             'join_date': datetime(2021, 3, 10)
@@ -127,6 +131,8 @@ def create_sample_users(user_model):
             'full_name': 'Sandun Silva',
             'phone': '+94771234569',
             'annual_leave_balance': 18,
+            'sick_leave_balance': 7,      # <-- අලුතින් එකතු කරන්න
+            'casual_leave_balance': 7,    # <-- අලුතින් එකතු කරන්න
             'position': 'HR Executive',
             'salary': 120000,
             'join_date': datetime(2022, 6, 1)
@@ -145,6 +151,8 @@ def create_sample_users(user_model):
             'full_name': 'John Doe',
             'phone': '+94771234570',
             'annual_leave_balance': 21,
+            'sick_leave_balance': 7,      # <-- අලුතින් එකතු කරන්න
+            'casual_leave_balance': 7,    # <-- අලුතින් එකතු කරන්න
             'position': 'Senior Software Engineer',
             'salary': 150000,
             'join_date': datetime(2021, 8, 15)
@@ -159,6 +167,8 @@ def create_sample_users(user_model):
             'full_name': 'Jane Smith',
             'phone': '+94771234571',
             'annual_leave_balance': 19,
+            'sick_leave_balance': 7,      # <-- අලුතින් එකතු කරන්න
+            'casual_leave_balance': 7,    # <-- අලුතින් එකතු කරන්න
             'position': 'Frontend Developer',
             'salary': 120000,
             'join_date': datetime(2022, 1, 10)
@@ -173,6 +183,8 @@ def create_sample_users(user_model):
             'full_name': 'Mike Wilson',
             'phone': '+94771234572',
             'annual_leave_balance': 21,
+            'sick_leave_balance': 7,      # <-- අලුතින් එකතු කරන්න
+            'casual_leave_balance': 7,    # <-- අලුතින් එකතු කරන්න
             'position': 'DevOps Engineer',
             'salary': 140000,
             'join_date': datetime(2021, 11, 5)
@@ -187,6 +199,8 @@ def create_sample_users(user_model):
             'full_name': 'Sarah Brown',
             'phone': '+94771234573',
             'annual_leave_balance': 20,
+            'sick_leave_balance': 7,      # <-- අලුතින් එකතු කරන්න
+            'casual_leave_balance': 7,    # <-- අලුතින් එකතු කරන්න
             'position': 'Financial Analyst',
             'salary': 110000,
             'join_date': datetime(2022, 4, 20)
@@ -201,6 +215,8 @@ def create_sample_users(user_model):
             'full_name': 'David Lee',
             'phone': '+94771234574',
             'annual_leave_balance': 18,
+            'sick_leave_balance': 7,      # <-- අලුතින් එකතු කරන්න
+            'casual_leave_balance': 7,    # <-- අලුතින් එකතු කරන්න
             'position': 'Marketing Manager',
             'salary': 130000,
             'join_date': datetime(2021, 9, 12)
@@ -215,6 +231,8 @@ def create_sample_users(user_model):
             'full_name': 'Lisa Garcia',
             'phone': '+94771234575',
             'annual_leave_balance': 21,
+            'sick_leave_balance': 7,      # <-- අලුතින් එකතු කරන්න
+            'casual_leave_balance': 7,    # <-- අලුතින් එකතු කරන්න
             'position': 'Backend Developer',
             'salary': 125000,
             'join_date': datetime(2022, 2, 28)
@@ -229,6 +247,8 @@ def create_sample_users(user_model):
             'full_name': 'Kevin Johnson',
             'phone': '+94771234576',
             'annual_leave_balance': 17,
+            'sick_leave_balance': 7,      # <-- අලුතින් එකතු කරන්න
+            'casual_leave_balance': 7,    # <-- අලුතින් එකතු කරන්න
             'position': 'Accountant',
             'salary': 85000,
             'join_date': datetime(2022, 7, 8)
@@ -258,16 +278,16 @@ def create_sample_users(user_model):
     return created_users
 
 def create_sample_leaves(leave_model, users):
-    """Create sample leave requests"""
+    """Create sample leave requests for ALL users""" # <-- පැහැදිලි olması için yorumu güncelledim
     
     leave_types = ['annual', 'sick', 'casual', 'emergency']
     statuses = ['pending', 'approved', 'rejected']
     
-    # Get non-HR users for leave requests
-    regular_users = [user for user in users if user.get('role') == 'user']
+    # The line filtering for 'regular_users' has been removed.
+    # Now, leave requests will be created for both 'hr' and 'user' roles.
     
     for i in range(15):  # Create 15 sample leave requests
-        user = random.choice(regular_users)
+        user = random.choice(users)  # <-- 'users' ලැයිස්තුවම භාවිතා කරයි
         
         # Random date within last 3 months and next 2 months
         base_date = datetime.now() - timedelta(days=90)
