@@ -38,18 +38,15 @@ def init_database():
         payroll_model = Payroll(db)
         
         # Ask user if they want to clear existing data
-        clear_data = input("\n🗑️ Do you want to clear existing data? (y/N): ").lower().strip()
-        
-        if clear_data == 'y' or clear_data == 'yes':
-            print("🗑️ Clearing existing data...")
-            db.get_collection('users').delete_many({})
-            db.get_collection('candidates').delete_many({})
-            db.get_collection('leaves').delete_many({})
-            db.get_collection('payroll').delete_many({})
-            db.get_collection('conversations').delete_many({})
-            print("✅ Existing data cleared")
-        else:
-            print("📝 Keeping existing data, will skip duplicates")
+        print("🗑️ Clearing existing data...")
+        db.get_collection('users').delete_many({})
+        db.get_collection('candidates').delete_many({})
+        db.get_collection('leaves').delete_many({})
+        db.get_collection('payroll').delete_many({})
+        db.get_collection('conversations').delete_many({})
+        db.get_collection('short_term_memory').delete_many({})
+        db.get_collection('long_term_memory').delete_many({})
+        print("✅ Existing data cleared")
         
         # Create sample users
         print("\n👥 Creating sample users...")
