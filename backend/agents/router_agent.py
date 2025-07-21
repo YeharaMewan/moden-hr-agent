@@ -403,91 +403,149 @@ class RouterAgent:
     
     def process_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Process requests that come through the workflow
-        This handles greeting, help, and general queries in an agentic way
+        Workflow එක තුළදී RouterAgent එකේ ක්‍රියාකාරීත්වය.
+        සරල ඉල්ලීම් සඳහා පිළිතුරු මෙතැනින්ම ජනනය කරයි.
         """
         try:
             intent = request_data.get('intent')
             message = request_data.get('message')
             user_context = request_data.get('user_context', {})
             
-            print(f"🤖 RouterAgent processing workflow request: {intent}")
-            
-            # Generate contextual, personalized responses using AI
+            print(f"🤖 RouterAgent is now directly handling intent: '{intent}'")
+
             if intent == 'greeting':
-                return self._generate_agentic_greeting(message, user_context, request_data)
+                return self._handle_greeting(message, user_context)
             elif intent == 'help':
-                return self._generate_agentic_help(message, user_context, request_data)
-            elif intent == 'general':
-                return self._generate_agentic_general_response(message, user_context, request_data)
-            else:
-                return self._generate_fallback_response(message, user_context, request_data)
-                
+                return self._handle_help(message, user_context)
+            else: # General, thanks, bye වැනි අනෙකුත් සරල intents
+                return self._handle_general_query(message, user_context)
+
         except Exception as e:
-            return {
-                "success": False,
-                "response": f"I encountered an error processing your request: {str(e)}",
-                "requires_human_approval": False,
-                "confidence": 0.0
-            }
+            print(f"❌ Error in RouterAgent.process_request: {e}")
+            return self.format_error_response(f"RouterAgent Error: {str(e)}")
+    
+    def _handle_greeting(self, message: str, user_context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        AI සහ සංවාද ඉතිහාසය භාවිතා කර, වඩාත් ස්වාභාවික සහ ගතික සුබපැතුම් පිළිතුරක් ජනනය කරයි.
+        Generates a more natural and dynamic greeting using AI and conversation history.
+        """
+        try:
+            username = user_context.get('full_name', 'there')
+            
+            prompt = f"""
+            You are a conversational HR AI assistant named Gemini.
+            A user named '{username}' just said: '{message}'.
+
+            Your task is to provide a natural, human-like response. Avoid repeating the same phrase. 
+            
+            - If the user says "hi" or "hello", respond with a friendly but brief acknowledgment. Examples: "Hello {username}!", "Hi there, how can I help?", "Yes, I'm here to assist."
+            - If the user asks "how are you", respond positively and shift the focus back to helping them. Example: "I'm doing great, thanks for asking! What can I do for you today?"
+            
+            Always be direct in your response. Do not explain what you are going to say. Just say it.
+            """
+
+            ai_response = self.model.generate_content(prompt).text.strip()
+            
+            return self.format_success_response(ai_response)
+
+        except Exception as e:
+            print(f"⚠️ AI greeting generation warning: {e}")
+            username = user_context.get('username', 'there')
+
+            return self.format_success_response(f"Hello {username}! How can I be of assistance today?")
+
+
+    def _handle_help(self, message: str, user_context: Dict[str, Any]) -> Dict[str, Any]:
+        """පරිශීලකයාගේ භූමිකාවට (role) ගැලපෙන උපකාර පණිවිඩයක් ජනනය කරයි."""
+        role = user_context.get('role', 'user')
+        prompt = f"""
+        You are an HR AI assistant. A user with the role '{role}' is asking for help.
+        Provide a clear, concise, and well-formatted summary of what you can do for them.
+        Give 2-3 specific command examples relevant to their role.
+        - For an 'hr' user, focus on administrative tasks (e.g., 'Find Java developers', 'Show pending leave requests').
+        - For a 'user', focus on personal tasks (e.g., 'I need leave next week', 'Calculate my salary').
+        Keep the tone friendly and helpful.
+        """
+        ai_response = self.model.generate_content(prompt).text.strip()
+        return self.format_success_response(ai_response)
+
+    def format_success_response(self, response_text: str, requires_action: bool = False) -> Dict[str, Any]:
+        """Helper to format success responses"""
+        return {
+            'success': True,
+            'response': response_text,
+            'requires_action': requires_action,
+        }
+    
+    def format_error_response(self, error_message: str) -> Dict[str, Any]:
+        """Helper to format error responses"""
+        return {
+            'success': False,
+            'error': error_message,
+            'requires_action': False,
+        }
+    
+
+    def _handle_general_query(self, message: str, user_context: Dict[str, Any]) -> Dict[str, Any]:
+        """වර්ගීකරණය කළ නොහැකි සාමාන්‍ය පණිවිඩ සඳහා පිළිතුරු දෙයි."""
+        prompt = f"""
+        You are an HR AI assistant. A user said: '{message}'. This doesn't seem to be a specific HR task. 
+        Respond in a helpful and conversational manner. Acknowledge their message and gently guide them by suggesting a few things you can help with (like 'requesting leave' or 'checking payroll').
+        """
+        ai_response = self.model.generate_content(prompt).text.strip()
+        return self.format_success_response(ai_response)
     
     def _generate_agentic_greeting(self, message: str, user_context: Dict[str, Any], request_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Generates an intelligent, context-aware greeting. It uses AI for the first greeting
-        in a session and cycles through a predefined list for any subsequent greetings to
-        ensure variety and natural conversation flow.
+        AI සහ සංවාද ඉතිහාසය භාවිතා කර, වඩාත් ස්වාභාවික සහ ගතික සුබපැතුම් පිළිතුරක් ජනනය කරයි.
+        Generates a more natural and dynamic greeting using AI and conversation history.
         """
         try:
             username = user_context.get('full_name') or user_context.get('username', 'there')
-            messages_in_current_session = request_data.get('messages_history', [])
+            
+            # සංවාදයේ පෙර පණිවිඩ විශ්ලේෂණය කිරීම
+            messages_in_session = request_data.get('messages_history', [])
+            
+            # මෙය සංවාදයේ පළමු පණිවිඩයද, නැතහොත් මීට පෙර සුබ පැතුමක් හුවමාරු වී තිබේද යන්න සලකා බැලීම
+            is_first_interaction = len(messages_in_session) <= 1
+            
+            # AI ආකෘතිය සඳහා වඩාත් බුද්ධිමත් උපදෙස (Prompt)
+            prompt = f"""
+            You are a conversational HR AI assistant. Your name is Gemini.
+            A user named '{username}' just said: '{message}'.
 
-            # --- CORRECTED & SIMPLIFIED LOGIC ---
-            # Check for greetings in the history, EXCLUDING the current message.
-            previous_messages = messages_in_current_session[:-1]
-            is_first_greeting = not any(
-                re.search(p, msg.get('content', '').lower())
-                for p in self.intent_patterns['greeting']
-                for msg in previous_messages
-            )
+            Analyze the context and provide a natural, human-like response.
+            - If this is the first time they are greeting you in this conversation, give a warm and welcoming response and ask how you can help.
+            - If they have already greeted you and are saying 'hi' again, provide a very brief and varied acknowledgment like "Hello again!", "Yes?", or "How can I help?".
+            - If they ask "how are you", respond positively and turn the focus back to assisting them.
+            
+            Do not act like a robot. Be natural. Directly provide the response you want the user to see.
+            
+            Conversation history (for context): {json.dumps(messages_in_session[-5:], default=str)}
+            """
 
-            ai_response = ""
-
-            if is_first_greeting:
-                # For the first greeting in a session, use AI for a personalized welcome.
-                greeting_prompt = f"""
-                As a friendly and professional HR AI assistant, generate a warm, welcoming response for {username}.
-                Briefly state your purpose and offer 2-3 examples of what you can help with (e.g., leave, payroll, candidates).
-                """
-                response = self.model.generate_content(greeting_prompt)
-                ai_response = response.text.strip()
-            else:
-                # For any subsequent greetings in the same session, cycle through a list of varied responses.
-                greeting_count = sum(1 for msg in previous_messages if any(re.search(p, msg.get('content','').lower()) for p in self.intent_patterns['greeting']))
-
-                varied_responses = [
-                    f"Hello again, {username}! How can I be of assistance?",
-                    "Yes, I'm here and ready to help. What's next?",
-                    f"Hi again, {username}! What can I do for you now?",
-                    "I'm still here and ready to assist.",
-                ]
-                
-                # The modulo operator ensures a different response each time.
-                ai_response = varied_responses[greeting_count % len(varied_responses)]
+            # AI ආකෘතියෙන් පිළිතුර ජනනය කර ගැනීම
+            ai_response = self.model.generate_content(prompt).text.strip()
             
             return {
                 "success": True,
                 "response": ai_response,
                 "requires_human_approval": False,
                 "confidence": 0.99,
-                "agentic_features": ["context_aware", "session_aware", "varied_response"],
+                "agentic_features": ["context_aware", "ai_generated", "varied_response", "history_aware"],
             }
 
         except Exception as e:
             print(f"⚠️ AI greeting generation warning: {e}")
             username = user_context.get('username', 'there')
-            return { "success": True, "response": f"Hello {username}! How can I help you today?", "requires_human_approval": False, "confidence": 0.7 }
+            # දෝෂයක් ඇති වුවහොත්, සරල පිළිතුරක් ලබා දීම
+            return {
+                "success": True,
+                "response": f"Hello {username}! How can I be of assistance today?",
+                "requires_human_approval": False,
+                "confidence": 0.7
+            }
 
-    
     def _generate_agentic_help(self, message: str, user_context: Dict[str, Any], request_data: Dict[str, Any]) -> Dict[str, Any]:
         """Generate intelligent, role-specific help using AI"""
         try:
