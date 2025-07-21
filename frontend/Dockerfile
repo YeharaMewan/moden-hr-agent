@@ -1,7 +1,7 @@
 # Simple Frontend Dockerfile
 FROM node:20-alpine
 
-WORKDIR /app
+WORKDIR ./
 
 # Copy package files
 COPY package*.json ./
