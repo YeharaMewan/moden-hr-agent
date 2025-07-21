@@ -8,12 +8,13 @@ pymongo==4.5.0
 mongoengine==0.27.0
 
 # AI and ML libraries (CPU-only versions for smaller size)
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.2.2+cpu
-torchvision==0.17.2+cpu
+torch==2.2.2
+torchvision==0.17.2
 google-generativeai==0.3.1
 sentence-transformers==2.2.2
 faiss-cpu==1.7.4
+transformers==4.35.2
+huggingface-hub==0.19.4
 
 # LangGraph and LangChain
 langgraph==0.0.55
@@ -73,3 +74,5 @@ memory-profiler==0.61.0
 
 # Enhanced type hints
 typing-extensions==4.8.0
+
+gunicorn==21.2.0
