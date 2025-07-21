@@ -1,4 +1,4 @@
-# backend/app.py - Final Fixed Version
+# backend/app.py - Fixed for Docker
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
@@ -13,9 +13,9 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'hr-ai-secret-key-2024')
 
-# Enable CORS
+# Enable CORS - FIXED for Docker communication
 CORS(app, 
-     origins=['http://localhost:3000', 'http://127.0.0.1:3000'],
+     origins=['*'],  # Allow all origins for Docker
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
      allow_headers=['Content-Type', 'Authorization'],
      supports_credentials=True
@@ -92,21 +92,6 @@ def initialize_memory():
             def __init__(self, short_term, long_term):
                 self.short_term = short_term
                 self.long_term = long_term
-            
-            def get_system_statistics(self):
-                try:
-                    return {
-                        'short_term_memory': {
-                            'total_contexts': getattr(self.short_term, 'get_total_contexts', lambda: 0)(),
-                            'active_sessions': getattr(self.short_term, 'get_active_sessions', lambda: 0)()
-                        },
-                        'long_term_memory': {
-                            'total_memories': getattr(self.long_term, 'get_total_memories', lambda: 0)(),
-                            'learned_patterns': getattr(self.long_term, 'get_pattern_count', lambda: 0)()
-                        }
-                    }
-                except Exception as e:
-                    return {'error': f'Memory stats unavailable: {str(e)}'}
         
         memory_manager = MemoryManager(short_term_memory, long_term_memory)
         print("✅ Memory systems initialized!")
@@ -229,35 +214,6 @@ def detailed_health_check():
             'timestamp': datetime.now().isoformat()
         }), 500
 
-# System statistics endpoint
-@app.route('/api/system/stats', methods=['GET'])
-def system_stats():
-    """Get system statistics"""
-    try:
-        stats = {
-            'timestamp': datetime.now().isoformat(),
-            'system_info': {
-                'version': '2.0.0',
-                'workflow_engine': 'LangGraph' if workflow_manager else 'Unavailable',
-                'ai_model': 'Gemini Pro' if router_agent else 'Unavailable'
-            },
-            'memory_stats': memory_manager.get_system_statistics() if memory_manager else {'status': 'unavailable'},
-            'component_status': {
-                'database': bool(db_connection),
-                'memory': bool(memory_manager),
-                'agents': bool(router_agent),
-                'workflow': bool(workflow_manager)
-            }
-        }
-        
-        return jsonify(stats), 200
-        
-    except Exception as e:
-        return jsonify({
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 500
-
 # Error handlers
 @app.errorhandler(404)
 def not_found(error):
@@ -308,7 +264,6 @@ def initialize_system():
     print("🔗 Available API Endpoints:")
     print("  • /api/health - Simple health check")
     print("  • /api/health/detailed - Detailed component status")
-    print("  • /api/system/stats - System statistics")
     print("  • /api/auth/login - User authentication")
     if workflow_manager:
         print("  • /api/chat/message - AI chat interface")
@@ -333,7 +288,12 @@ if __name__ == '__main__':
     
     if system_ready:
         print("\n🌟 Starting Flask application...")
-        app.run(debug=True, host='0.0.0.0', port=5000)
+        # FIXED: Listen on all interfaces for Docker
+        app.run(
+            debug=False, 
+            host='0.0.0.0', 
+            port=int(os.getenv('FLASK_PORT', 5000))
+        )
     else:
         print("\n💥 System initialization failed - cannot start application")
         print("🔧 Please check the error messages above and fix the issues")

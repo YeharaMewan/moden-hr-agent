@@ -1,33 +1,34 @@
-# Start with an official Python runtime as a parent image
+# Production Dockerfile for Backend
 FROM python:3.9-slim
 
-# Set the working directory in the container
+# Set working directory
 WORKDIR /app
 
-# Copy the requirements file into the container at /app
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install any needed packages specified in requirements.txt
-# Using --no-cache-dir to reduce image size
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies
+RUN pip install --timeout=10000 --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application's code from your host to your container at /app
+# Copy application code
 COPY . .
 
-# Run init_db.py to initialize the database with sample data
-# Note: This assumes the MongoDB service is accessible during the build.
-# A better approach is to run this from the docker-compose setup.
-# We will handle this in the docker-compose file instead.
-# RUN python init_db.py
-
-# Make port 5000 available to the world outside this container
+# Expose port
 EXPOSE 5000
 
-# Define environment variables (can be overridden by docker-compose)
-ENV FLASK_APP=app.py
-ENV FLASK_RUN_HOST=0.0.0.0
+# Set environment variables
+ENV FLASK_ENV=production
+ENV PYTHONPATH=/app
 
-# Run app.py when the container launches
-# Use gunicorn for production or flask run for development
-# For this example, we use flask run
-CMD ["flask", "run"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:5000/api/health')" || exit 1
+
+# Run the application with Python directly (no gunicorn)
+CMD ["python", "app.py"]

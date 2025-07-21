@@ -1,25 +1,26 @@
-# =========================================================================
-# -- Development Dockerfile --
-# මෙම ගොනුව docker-compose සමඟ local development සඳහා පමණක් භාවිතා වේ.
-# =========================================================================
+# Simple Frontend Dockerfile
 FROM node:20-alpine
 
-# වැඩ කරන directory එක සකස් කිරීම
 WORKDIR /app
 
-# package.json සහ package-lock.json ගොනු පිටපත් කිරීම
-# node_modules cache එක ಉತ್ತಮ කිරීම සඳහා මෙය මුලින්ම සිදු කරයි
+# Copy package files
 COPY package*.json ./
 
-# devDependencies ඇතුළුව සියලුම dependencies ස්ථාපනය කිරීම
-# development server එකට 'next' command එක අවශ්‍ය නිසා මෙය අත්‍යවශ්‍ය වේ
-RUN npm install
+# Install dependencies
+RUN npm ci --network-timeout=600000 --only=production
 
-# ඉතිරි source code එක පිටපත් කිරීම
+# Copy source code
 COPY . .
 
-# Next.js dev server එක සඳහා port 3000 නිරාවරණය කිරීම
+# Build the application
+RUN npm run build
+
+# Expose port
 EXPOSE 3000
 
-# development server එක ආරම්භ කරන default command එක
-CMD ["npm", "run", "dev"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+
+# Start the application
+CMD ["npm", "start"]
