@@ -10,7 +10,7 @@ COPY frontend/package*.json ./
 RUN npm ci --only=production
 
 # Copy source code
-COPY . .
+COPY frontend/ .
 
 # Build the application
 RUN npm run build
