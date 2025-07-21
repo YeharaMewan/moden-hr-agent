@@ -12,7 +12,7 @@ def test_backend_connection():
     print("🔗 Testing Backend API Connection...")
     print("=" * 50)
     
-    base_url = "http://localhost:5000/api"
+    base_url = "https://moden-hr-agent.onrender.com/api"
     
     # Test 1: Health check
     try:
@@ -95,7 +95,7 @@ def test_frontend_config():
             content = f.read()
             print(f"📋 Contents:\n{content}")
             
-        if "http://localhost:5000/api" in content:
+        if "https://moden-hr-agent.onrender.com/api" in content:
             print("✅ API URL configuration looks correct")
         else:
             print("❌ API URL might be incorrect")
@@ -103,7 +103,7 @@ def test_frontend_config():
     else:
         print("❌ Frontend .env.local file missing!")
         print("💡 Create the file with:")
-        print("   NEXT_PUBLIC_API_URL=http://localhost:5000/api")
+        print("   NEXT_PUBLIC_API_URL=https://moden-hr-agent.onrender.com/api")
 
 if __name__ == '__main__':
     print("🧪 Starting Connection Tests...")

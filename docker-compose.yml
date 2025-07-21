@@ -28,7 +28,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import requests; requests.get('http://localhost:5000/api/health')",
+          "import requests; requests.get('https://moden-hr-agent.onrender.com/api/health')",
         ]
       interval: 30s
       timeout: 10s
